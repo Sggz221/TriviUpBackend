@@ -170,6 +170,19 @@ public class GameServiceTests
     }
 
     [Fact]
+    public async Task JoinGameAsync_ExistingPlayerReconnectsWhilePlaying_ReturnsSuccess()
+    {
+        var roomCode = await CreatePlayingTestRoom();
+        var result = await _service.JoinGameAsync(roomCode, 200L, "player2", "conn-200-new");
+
+        Assert.True(result.IsSuccess);
+        var session = await _store.GetAsync(roomCode);
+        var reconnected = session!.Players.Single(p => p.UserId == 200L);
+        Assert.True(reconnected.IsConnected);
+        Assert.Equal("conn-200-new", reconnected.ConnectionId);
+    }
+
+    [Fact]
     public async Task JoinGameAsync_SharedStore_VisibleAcrossServiceInstances()
     {
         var roomCode = await CreateTestRoom();

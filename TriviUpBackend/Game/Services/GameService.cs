@@ -101,21 +101,35 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return Result.Failure<GameRoom>("Room not found.");
         }
 
-        if (session.State != GameState.Waiting)
-        {
-            _logger.LogWarning("Join attempt to non-waiting room: {RoomCode}", roomCode);
-            return Result.Failure<GameRoom>("Game has already started.");
-        }
-
-        if (session.Players.Count >= _options.MaxPlayersPerRoom &&
-            session.Players.All(p => p.UserId != userId))
-        {
-            _logger.LogWarning("Join attempt to full room: {RoomCode}", roomCode);
-            return Result.Failure<GameRoom>("Room is full.");
-        }
-
+        // Un jugador que ya está en la sala puede reconectar en cualquier estado
+        // (Waiting, Playing, Paused) — solo un join genuinamente nuevo exige que la
+        // sala siga en espera y tenga hueco.
         var existingPlayer = session.Players.FirstOrDefault(p => p.UserId == userId);
-        if (existingPlayer != null)
+
+        if (existingPlayer is null)
+        {
+            if (session.State != GameState.Waiting)
+            {
+                _logger.LogWarning("Join attempt to non-waiting room: {RoomCode}", roomCode);
+                return Result.Failure<GameRoom>("Game has already started.");
+            }
+
+            if (session.Players.Count >= _options.MaxPlayersPerRoom)
+            {
+                _logger.LogWarning("Join attempt to full room: {RoomCode}", roomCode);
+                return Result.Failure<GameRoom>("Room is full.");
+            }
+
+            session.Players.Add(new PlayerDocument
+            {
+                UserId = userId,
+                Username = username,
+                ConnectionId = connectionId,
+                IsConnected = true,
+                IsOwner = false
+            });
+        }
+        else
         {
             if (!string.IsNullOrEmpty(existingPlayer.ConnectionId) &&
                 !string.Equals(existingPlayer.ConnectionId, connectionId, StringComparison.Ordinal))
@@ -126,17 +140,6 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             existingPlayer.IsConnected = true;
             existingPlayer.ConnectionId = connectionId;
             existingPlayer.Username = username;
-        }
-        else
-        {
-            session.Players.Add(new PlayerDocument
-            {
-                UserId = userId,
-                Username = username,
-                ConnectionId = connectionId,
-                IsConnected = true,
-                IsOwner = false
-            });
         }
 
         await _store.SaveAsync(session);
@@ -188,7 +191,35 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         await _store.ClearUserRoomAsync(userId);
         await _store.SaveAsync(session);
         _logger.LogInformation("User {UserId} left room {RoomCode}", userId, roomCode);
+
+        if (player != null && !isExplicitLeave)
+        {
+            // Desconexión silenciosa (refresh, wifi, cerrar pestaña): el estado
+            // IsConnected/IsOwner cambió, pero nadie más se enteraba. Al difundir la
+            // lista actualizada, el punto verde/rojo de cada jugador (ya existente en
+            // la UI) refleja esto en tiempo real para el resto de la sala.
+            await BroadcastPlayersListAsync(session);
+        }
+
         return false;
+    }
+
+    private async Task BroadcastPlayersListAsync(GameSessionDocument session)
+    {
+        var playersList = session.Players.Select(p => new PlayerDto(
+            p.UserId,
+            p.Username,
+            p.Score,
+            p.CorrectAnswers,
+            p.WrongAnswers,
+            false,
+            p.IsOwner,
+            p.IsConnected
+        )).ToList();
+
+        using var scope = _scopeFactory.CreateScope();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+        await hubContext.Clients.Group(session.RoomCode).SendAsync("PlayersList", playersList);
     }
 
     /// <summary>

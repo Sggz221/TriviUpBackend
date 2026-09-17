@@ -88,6 +88,14 @@ public class GameHub : Hub
     }
 
     /// <summary>
+    /// Obtiene el username del usuario autenticado desde el claim "username" del JWT.
+    /// </summary>
+    private string GetAuthenticatedUsername(long userId)
+    {
+        return Context.User?.FindFirst("username")?.Value ?? $"Player_{userId}";
+    }
+
+    /// <summary>
     /// Crea una nueva sala de juego. Requiere usuario autenticado.
     /// </summary>
     public async Task<string> CreateGame(long quizId)
@@ -95,8 +103,7 @@ public class GameHub : Hub
         var userId = GetAuthenticatedUserId();
         _logger.LogInformation("User {UserId} creating game for quiz {QuizId}", userId, quizId);
 
-        // TODO: Obtener username del usuario autenticado (del token o base de datos)
-        var username = $"Player_{userId}";
+        var username = GetAuthenticatedUsername(userId);
 
         var roomCode = await _gameService.CreateGameAsync(quizId, userId, username, Context.ConnectionId);
 
