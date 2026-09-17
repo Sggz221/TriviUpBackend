@@ -38,10 +38,25 @@ Desafía a tus amigos, pon a prueba tus conocimientos y diviértete con emociona
 
 | Variable | Descripción |
 |---|---|
-| `DATABASE_URL` | Connection string PostgreSQL (plugin Railway) |
+| `DATABASE_URL` | Connection string PostgreSQL (plugin Railway, host privado) |
+| `DATABASE_PUBLIC_URL` | **Recomendada en Railway** — URL pública del TCP proxy (`proxy.rlwy.net`). El backend la usa automáticamente si `DATABASE_URL` apunta a `*.railway.internal` |
+| `USE_DATABASE_PUBLIC_URL` | `true` para forzar siempre la URL pública |
+| `PREFER_PRIVATE_DATABASE` | `true` para forzar el host privado (requiere private networking / IPv6) |
 | `REDIS_URL` | Connection string Redis (`redis://` / `rediss://`) — **obligatoria en producción** |
 | `Jwt__Key` | Clave de firma JWT |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth Google |
+
+### Postgres en Railway (crashes por DNS)
+
+Si ves `SocketException: Name or service not known` con un host `*.railway.internal`, el DNS privado de Railway no está resolviendo (red privada / IPv6). Solución rápida:
+
+1. En el servicio **backend**, añade la variable:
+   `DATABASE_PUBLIC_URL=${{Postgres.DATABASE_PUBLIC_URL}}`
+   (sustituye `Postgres` por el nombre real del servicio Postgres en tu proyecto).
+2. Redeploy. El código prioriza esa URL cuando el host es interno.
+3. Opcional: `USE_DATABASE_PUBLIC_URL=true` para forzarla siempre.
+
+También se aceptan URIs `postgres://` y `postgresql://` (antes solo se convertía `postgresql://`).
 
 ### Redis
 
