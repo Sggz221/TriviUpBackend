@@ -49,6 +49,13 @@ public sealed class PlayerDocument
     public bool IsConnected { get; set; } = true;
     public bool IsOwner { get; set; }
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Momento en que se desconectó (refresh, wifi, cerrar pestaña). Null mientras
+    /// está conectado. Se usa para dar al owner una ventana de gracia antes de
+    /// transferir el ownership a otro jugador de verdad.
+    /// </summary>
+    public DateTime? DisconnectedAt { get; set; }
 }
 
 public sealed class QuestionSnapshot

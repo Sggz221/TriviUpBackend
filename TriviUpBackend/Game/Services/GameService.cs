@@ -101,6 +101,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return Result.Failure<GameRoom>("Room not found.");
         }
 
+        var ownerChangedBeforeJoin = EnsureOwnerActive(session);
+
         // Un jugador que ya está en la sala puede reconectar en cualquier estado
         // (Waiting, Playing, Paused) — solo un join genuinamente nuevo exige que la
         // sala siga en espera y tenga hueco.
@@ -138,6 +140,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             }
 
             existingPlayer.IsConnected = true;
+            existingPlayer.DisconnectedAt = null;
             existingPlayer.ConnectionId = connectionId;
             existingPlayer.Username = username;
         }
@@ -145,6 +148,13 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         await _store.SaveAsync(session);
         await _store.SetConnectionMappingAsync(connectionId, userId, roomCode);
         await _store.SetUserRoomAsync(userId, roomCode);
+
+        if (ownerChangedBeforeJoin)
+        {
+            // El resto de la sala no se había enterado todavía de este cambio
+            // (solo lo ve quien se está uniendo ahora mismo, vía PlayersList al caller).
+            await BroadcastPlayersListAsync(session);
+        }
 
         _logger.LogInformation("User {UserId} ({Username}) joined room {RoomCode}", userId, username, roomCode);
         return Result.Success(GameSessionMapper.ToRoom(session));
@@ -169,18 +179,12 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             }
 
             player.IsConnected = false;
+            player.DisconnectedAt = DateTime.UtcNow;
 
-            if (player.IsOwner && session.State == GameState.Waiting)
-            {
-                var newOwner = session.Players.FirstOrDefault(p => p.UserId != userId && p.IsConnected);
-                if (newOwner != null)
-                {
-                    newOwner.IsOwner = true;
-                    session.OwnerId = newOwner.UserId;
-                    player.IsOwner = false;
-                    _logger.LogInformation("Owner transferred to {NewOwnerId} in room {RoomCode}", newOwner.UserId, roomCode);
-                }
-            }
+            // No transferimos el ownership aquí al vuelo: una desconexión silenciosa
+            // (refresh, wifi, pestaña en background en móvil) no distingue de un
+            // abandono real. Le damos al owner una ventana de gracia (ver
+            // EnsureOwnerActive) para reconectar antes de ceder la sala a otro.
 
             if (!string.IsNullOrEmpty(player.ConnectionId))
             {
@@ -202,6 +206,36 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Si el owner lleva desconectado más que la ventana de gracia configurada,
+    /// transfiere el ownership al siguiente jugador conectado. Se llama de forma
+    /// perezosa (no con un timer) desde los puntos donde importa saber quién es
+    /// el owner de verdad: al unirse/reconectar alguien y al intentar iniciar la
+    /// partida.
+    /// </summary>
+    private bool EnsureOwnerActive(GameSessionDocument session)
+    {
+        if (session.State != GameState.Waiting) return false;
+
+        var owner = session.Players.FirstOrDefault(p => p.IsOwner);
+        if (owner is null || owner.IsConnected || owner.DisconnectedAt is null) return false;
+
+        var graceExpired = DateTime.UtcNow - owner.DisconnectedAt.Value
+            > TimeSpan.FromMinutes(_options.OwnerReconnectGraceMinutes);
+        if (!graceExpired) return false;
+
+        var newOwner = session.Players.FirstOrDefault(p => p.UserId != owner.UserId && p.IsConnected);
+        if (newOwner is null) return false;
+
+        newOwner.IsOwner = true;
+        session.OwnerId = newOwner.UserId;
+        owner.IsOwner = false;
+        _logger.LogInformation(
+            "Owner transferred to {NewOwnerId} in room {RoomCode} after {GraceMinutes}min reconnect grace expired",
+            newOwner.UserId, session.RoomCode, _options.OwnerReconnectGraceMinutes);
+        return true;
     }
 
     private async Task BroadcastPlayersListAsync(GameSessionDocument session)
@@ -257,6 +291,12 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         var session = await _store.GetAsync(roomCode);
         if (session is null) return null;
+
+        if (EnsureOwnerActive(session))
+        {
+            await _store.SaveAsync(session);
+            await BroadcastPlayersListAsync(session);
+        }
 
         if (session.OwnerId != userId)
         {

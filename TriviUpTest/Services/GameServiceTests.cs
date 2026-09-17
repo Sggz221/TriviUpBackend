@@ -197,14 +197,55 @@ public class GameServiceTests
     // ========== LeaveGameAsync Tests ==========
 
     [Fact]
-    public async Task LeaveGameAsync_OwnerLeavesDuringWaiting_TransfersOwnership()
+    public async Task LeaveGameAsync_OwnerDisconnectsDuringWaiting_DoesNotTransferImmediately()
     {
         var roomCode = await CreateTestRoomWithTwoPlayers();
         await _service.LeaveGameAsync(roomCode, 100L);
 
         var session = await _store.GetAsync(roomCode);
         Assert.NotNull(session);
-        Assert.Equal(200L, session.OwnerId);
+        Assert.Equal(100L, session.OwnerId);
+
+        var owner = session.Players.Single(p => p.UserId == 100L);
+        Assert.False(owner.IsConnected);
+        Assert.NotNull(owner.DisconnectedAt);
+    }
+
+    [Fact]
+    public async Task JoinGameAsync_OwnerReconnectGraceExpired_TransfersOwnershipLazily()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        await _service.LeaveGameAsync(roomCode, 100L);
+
+        // Simulate the reconnect grace period having already expired
+        var session = await _store.GetAsync(roomCode);
+        session!.Players.Single(p => p.UserId == 100L).DisconnectedAt = DateTime.UtcNow.AddMinutes(-10);
+        await _store.SaveAsync(session);
+
+        // Any join/reconnect in the room lazily resolves the stale ownership
+        await _service.JoinGameAsync(roomCode, 200L, "player2", "conn-200-new");
+
+        var updated = await _store.GetAsync(roomCode);
+        Assert.Equal(200L, updated!.OwnerId);
+        Assert.True(updated.Players.Single(p => p.UserId == 200L).IsOwner);
+        Assert.False(updated.Players.Single(p => p.UserId == 100L).IsOwner);
+    }
+
+    [Fact]
+    public async Task JoinGameAsync_OwnerReconnectsWithinGrace_KeepsOwnership()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        await _service.LeaveGameAsync(roomCode, 100L);
+
+        var result = await _service.JoinGameAsync(roomCode, 100L, "owner", "conn-100-new");
+
+        Assert.True(result.IsSuccess);
+        var session = await _store.GetAsync(roomCode);
+        var owner = session!.Players.Single(p => p.UserId == 100L);
+        Assert.True(owner.IsOwner);
+        Assert.True(owner.IsConnected);
+        Assert.Null(owner.DisconnectedAt);
+        Assert.Equal(100L, session.OwnerId);
     }
 
     [Fact]

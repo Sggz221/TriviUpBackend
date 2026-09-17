@@ -13,6 +13,13 @@ public class GameOptions
     public int TurnTransitionDelay { get; set; } = 2;        // segundos
     public int CountdownSeconds { get; set; } = 3;
     public int DisconnectTimeout { get; set; } = 30;        // segundos
+
+    /// <summary>
+    /// Minutos de gracia tras una desconexión del owner (refresh, wifi, cerrar
+    /// pestaña) antes de transferir el ownership a otro jugador conectado. Si el
+    /// owner reconecta dentro de esta ventana, conserva el ownership.
+    /// </summary>
+    public int OwnerReconnectGraceMinutes { get; set; } = 5;
     public int BasePoints { get; set; } = 100;
     public int TimeBonusMultiplier { get; set; } = 10;
     public int MaxTimeBonus { get; set; } = 200;
