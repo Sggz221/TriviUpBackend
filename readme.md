@@ -24,11 +24,35 @@ Desafía a tus amigos, pon a prueba tus conocimientos y diviértete con emociona
 
 ### Backend
 - **.NET 9** · ASP.NET Core · Entity Framework Core
-- **PostgreSQL** · SignalR · JWT · BCrypt
+- **PostgreSQL** · **Redis** (estado de partidas + SignalR backplane) · SignalR · JWT · BCrypt
 
 ### Frontend
 - **Angular 21** · TypeScript · Tailwind CSS
 - **DaisyUI 5** · SignalR · RxJS · Vitest
+
+---
+
+## 🚀 Despliegue (Railway)
+
+### Variables de entorno requeridas
+
+| Variable | Descripción |
+|---|---|
+| `DATABASE_URL` | Connection string PostgreSQL (plugin Railway) |
+| `REDIS_URL` | Connection string Redis (`redis://` / `rediss://`) — **obligatoria en producción** |
+| `Jwt__Key` | Clave de firma JWT |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth Google |
+
+### Redis
+
+El estado en vivo de las salas (`GameService`) y el backplane de SignalR usan Redis. Sin `REDIS_URL` en producción la API no arranca.
+
+En desarrollo local, si no hay Redis, el backend cae a un almacén in-memory y SignalR sin backplane (solo 1 instancia).
+
+1. Añade el plugin **Redis** al servicio backend en Railway.
+2. Verifica que `REDIS_URL` esté inyectada.
+3. Health check: `GET /health` (incluye ping a Redis cuando está configurado).
+4. Puedes escalar a **varias réplicas**; el estado y los grupos SignalR se comparten vía Redis.
 
 ---
 
