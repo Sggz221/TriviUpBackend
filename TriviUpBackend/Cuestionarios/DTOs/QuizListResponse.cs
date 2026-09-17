@@ -2,6 +2,9 @@ using System.Text.Json.Serialization;
 
 namespace TriviUpBackend.Cuestionarios.DTOs;
 
+/// <summary>
+/// Información resumida de un quiz para listados.
+/// </summary>
 public record QuizListResponse
 {
     [property: JsonPropertyName("id")]

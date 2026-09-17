@@ -1,0 +1,20 @@
+meta {
+  name: Get Game By ID - Negative - Not Found
+  type: http
+  seq: 50
+  res.status: 404
+}
+
+get {
+  url: {{baseUrl}}/api/game/999999
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+assert {
+  res.status: 404
+}

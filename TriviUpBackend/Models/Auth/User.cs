@@ -5,6 +5,10 @@ using TriviUpBackend.Data;
 
 namespace TriviUpBackend.Models.Auth;
 
+/// <summary>
+/// Entidad de usuario en el sistema.
+/// Representa un usuario registrado con credenciales de acceso.
+/// </summary>
 [Table("users")]
 [Index(nameof(Username), IsUnique = true)]
 [Index(nameof(Email), IsUnique = true)]

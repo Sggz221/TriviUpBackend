@@ -1,0 +1,22 @@
+meta {
+  name: Get All Quizzes - Positive
+  type: http
+  seq: 26
+  res.status: 200
+}
+
+get {
+  url: {{baseUrl}}/api/cuestionarios?page=1&pageSize=10
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+assert {
+  res.status: 200
+  body.quizzes: "exists"
+  body.totalCount: "exists"
+}

@@ -4,8 +4,8 @@ meta {
   seq: 1
 }
 
-post {{baseUrl}}/auth/signup {
-  body: {
+post {{baseUrl}}/auth/signup:
+  body:json: {
     username: "testuser",
     email: "test@example.com",
     password: "test1234"
@@ -17,4 +17,3 @@ post {{baseUrl}}/auth/signup {
       token: "{{token}}"
     }
   }
-}

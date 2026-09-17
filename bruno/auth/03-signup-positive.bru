@@ -1,0 +1,36 @@
+meta {
+  name: Signup - Positive - New Unique User
+  type: http
+  seq: 3
+  res.status: 201
+}
+
+post {
+  url: {{baseUrl}}/auth/signup
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "newuser_{{timestamp}}",
+    "email": "newuser_{{timestamp}}@test.com",
+    "password": "{{testPassword}}"
+  }
+}
+
+script:post-response {
+  if (res.status === 201) {
+    const body = res.getBody();
+    // Don't overwrite authToken - keep admin token for admin tests
+    bru.setVar("newUserId", body.user.id.toString());
+    bru.setVar("newUsername", body.user.username);
+    console.log("Signup successful.");
+  }
+}
+
+assert {
+  res.status: 201
+  body.token: "exists"
+  body.user.id: "exists"
+}

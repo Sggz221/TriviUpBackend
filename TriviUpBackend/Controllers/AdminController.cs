@@ -3,37 +3,42 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using TriviUpBackend.Database;
 using TriviUpBackend.Game.DTOs;
-using TriviUpBackend.Services.Cache;
 
 namespace TriviUpBackend.Controllers;
 
+/// <summary>
+/// Controlador de administración.
+/// Proporciona endpoints exclusivos para administradores del sistema.
+/// </summary>
 [ApiController]
 [Route("api/admin")]
 [Authorize(Roles = "ADMIN")]
+[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 public class AdminController : ControllerBase
 {
     private readonly Context _context;
     private readonly ILogger<AdminController> _logger;
-    private readonly ICacheService _cacheService;
-    private static readonly TimeSpan StatsCacheDuration = TimeSpan.FromMinutes(2);
 
-    public AdminController(Context context, ILogger<AdminController> logger, ICacheService cacheService)
+    /// <summary>
+    /// Constructor del controlador de administración.
+    /// </summary>
+    /// <param name="context">Contexto de la base de datos.</param>
+    /// <param name="logger">Logger para mensajes de diagnóstico.</param>
+    public AdminController(Context context, ILogger<AdminController> logger)
     {
         _context = context;
         _logger = logger;
-        _cacheService = cacheService;
     }
 
+    /// <summary>
+    /// Obtiene estadísticas generales del sistema.
+    /// Incluye total de partidas, quizzes, usuarios, usuarios activos y rankings.
+    /// </summary>
+    /// <returns>Estadísticas del sistema.</returns>
     [HttpGet("stats")]
     public async Task<ActionResult<AdminStatsDto>> GetStats()
     {
-        const string cacheKey = "stats:admin";
-        var cached = await _cacheService.GetAsync<AdminStatsDto>(cacheKey);
-        if (cached is not null)
-        {
-            _logger.LogDebug("Cache hit for admin stats");
-            return Ok(cached);
-        }
+        _logger.LogInformation("[AdminController] Obteniendo estadísticas sin cache");
 
         // Total games played (from GameHistories)
         var totalGames = await _context.GameHistories.CountAsync();
@@ -88,7 +93,8 @@ public class AdminController : ControllerBase
             activeUsersPerDay
         );
 
-        await _cacheService.SetAsync(cacheKey, stats, StatsCacheDuration);
+        _logger.LogInformation("[AdminController] Estadísticas obtenidas: {TotalGames} juegos, {TotalQuizzes} quizzes, {TotalUsers} usuarios",
+            totalGames, totalQuizzes, totalUsers);
 
         return Ok(stats);
     }

@@ -1,0 +1,16 @@
+meta {
+  name: Get Game History - Negative - No Token
+  type: http
+  seq: 49
+  res.status: 401
+}
+
+get {
+  url: {{baseUrl}}/api/game/history
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: 401
+}

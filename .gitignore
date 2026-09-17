@@ -1,40 +1,31 @@
-﻿# ==================================
-# Compilación y archivos temporales
-# ==================================
-[Bb]in/
-[Oo]bj/
-TestResults/
-*.log
+﻿# Dependencies
+node_modules/
 
-# ==================================
-# Configuración local de IDEs
-# ==================================
-# JetBrains Rider (Tu IDE actual)
-.idea/
-*.sln.iml
-*.ReSharper
+# Build outputs
+bin/
+obj/
+dist/
 
-# Visual Studio / Visual Studio Code
+# IDE
 .vs/
 .vscode/
 *.user
 *.suo
-*.userosscache
-*.sln.docstates
 
-# ==================================
-# Archivos del Sistema Operativo
-# ==================================
+# Logs
+*.log
+logs/
+
+# OS
 .DS_Store
-.AppleDouble
-.LSOverride
 Thumbs.db
-ehthumbs.db
-$RECYCLE.BIN/
 
-# ==================================
-# Secretos y configuraciones locales
-# ==================================
-# Evita subir cadenas de conexión o claves por accidente
-appsettings.Local.json
-secrets.json    
+# Environment
+.env
+*.env
+
+# Test results
+TestResults/
+
+# Playwright
+playwright/.cache/

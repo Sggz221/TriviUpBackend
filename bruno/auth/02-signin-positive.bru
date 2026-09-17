@@ -1,0 +1,33 @@
+meta {
+  name: Signin - Positive
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/auth/signin
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "admin",
+    "password": "admin123"
+  }
+}
+
+script:post-response {
+  if (res.status === 200) {
+    const body = res.getBody();
+    bru.setVar("authToken", body.token);
+    bru.setVar("userId", body.user.id.toString());
+    console.log("Signin successful.");
+  }
+}
+
+assert {
+  res.status: 200
+  body.token: "exists"
+  body.user.id: "exists"
+}

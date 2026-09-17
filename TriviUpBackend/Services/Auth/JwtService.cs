@@ -6,6 +6,9 @@ using TriviUpBackend.Models.Auth;
 
 namespace TriviUpBackend.Services.Auth;
 
+/// <summary>
+/// Implementación del servicio de generación y validación de tokens JWT.
+/// </summary>
 public class JwtService(
     IConfiguration configuration,
     ILogger<JwtService> logger
@@ -14,7 +17,7 @@ public class JwtService(
     private readonly IConfiguration _configuration = configuration;
     private readonly ILogger<JwtService> _logger = logger;
 
-    //Generar el JWT Token
+    /// <inheritdoc cref="IJwtService.GenerateToken"/>
     public string GenerateToken(User user)
     {
         var key = _configuration["Jwt:Key"]
@@ -53,6 +56,7 @@ public class JwtService(
         return tokenString;
     }
     
+    /// <inheritdoc cref="IJwtService.ValidateToken"/>
     public string? ValidateToken(string token)
     {
         try

@@ -9,10 +9,15 @@ using TriviUpBackend.Errors;
 
 namespace TriviUpBackend.Controllers;
 
+/// <summary>
+/// Controlador para gestionar imágenes asociadas a preguntas de quizzes.
+/// Permite subir y eliminar imágenes de preguntas específicas.
+/// </summary>
 [ApiController]
 [Route("api/cuestionarios/preguntas")]
 [Produces("application/json")]
 [Authorize]
+[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 public class QuestionImagesController(
     IQuestionImageStorage questionImageStorage,
     IQuizRepository quizRepository,
@@ -22,8 +27,11 @@ public class QuestionImagesController(
 {
     /// <summary>
     /// Sube una imagen para una pregunta específica.
-    /// PUT /api/cuestionarios/preguntas/{preguntaId}/imagen
+    /// Solo el creador del cuestionario puede subir imágenes a sus preguntas.
     /// </summary>
+    /// <param name="preguntaId">ID único de la pregunta.</param>
+    /// <param name="file">Archivo de imagen a subir (máximo 5MB, formatos permitidos: png, jpg, jpeg, gif, webp).</param>
+    /// <returns>ID de la pregunta y URL relativa de la imagen subida.</returns>
     [HttpPut("{preguntaId:long}/imagen")]
     [ProducesResponseType(typeof(PreguntaImageResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -95,8 +103,10 @@ public class QuestionImagesController(
 
     /// <summary>
     /// Elimina la imagen de una pregunta específica.
-    /// DELETE /api/cuestionarios/preguntas/{preguntaId}/imagen
+    /// Solo el creador del cuestionario puede eliminar imágenes de sus preguntas.
     /// </summary>
+    /// <param name="preguntaId">ID único de la pregunta.</param>
+    /// <returns>Sin contenido en caso de éxito.</returns>
     [HttpDelete("{preguntaId:long}/imagen")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -152,6 +162,10 @@ public class QuestionImagesController(
         return NoContent();
     }
 
+    /// <summary>
+    /// Extrae el ID del usuario autenticado desde los claims del token JWT.
+    /// </summary>
+    /// <returns>ID del usuario o null si no se encuentra.</returns>
     private long? GetCurrentUserId()
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);

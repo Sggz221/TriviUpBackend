@@ -1,0 +1,37 @@
+meta {
+  name: Update Quiz - Negative - Not Owner
+  type: http
+  seq: 29
+  res.status: 404
+}
+
+put {
+  url: {{baseUrl}}/api/cuestionarios/{{quizId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "nombre": "Trying to Update Without Ownership",
+    "preguntas": [
+      {
+        "id": null,
+        "numeroPregunta": 1,
+        "enunciado": "Test",
+        "respuestas": [
+          { "texto": "A", "esCorrecta": true },
+          { "texto": "B", "esCorrecta": false }
+        ]
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: 403
+}

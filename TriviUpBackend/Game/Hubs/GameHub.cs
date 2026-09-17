@@ -7,12 +7,23 @@ using TriviUpBackend.Services.Auth;
 
 namespace TriviUpBackend.Game.Hubs;
 
+/// <summary>
+/// Hub de SignalR para la gestión de partidas en tiempo real.
+/// Permite a los usuarios crear salas, unirse, jugar y competir en quizzes.
+/// </summary>
+[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 public class GameHub : Hub
 {
     private readonly IGameService _gameService;
     private readonly IJwtTokenExtractor _jwtTokenExtractor;
     private readonly ILogger<GameHub> _logger;
 
+    /// <summary>
+    /// Constructor del hub de juego.
+    /// </summary>
+    /// <param name="gameService">Servicio de gestión de partidas.</param>
+    /// <param name="jwtTokenExtractor">Extractor de tokens JWT.</param>
+    /// <param name="logger">Logger para mensajes de diagnóstico.</param>
     public GameHub(
         IGameService gameService,
         IJwtTokenExtractor jwtTokenExtractor,
@@ -87,7 +98,7 @@ public class GameHub : Hub
         // TODO: Obtener username del usuario autenticado (del token o base de datos)
         var username = $"Player_{userId}";
 
-        var roomCode = await _gameService.CreateGameAsync(quizId, userId, username);
+        var roomCode = await _gameService.CreateGameAsync(quizId, userId, username, Context.ConnectionId);
 
         _logger.LogInformation("Game {RoomCode} created by user {UserId}", roomCode, userId);
 
@@ -184,6 +195,10 @@ public class GameHub : Hub
 
         await _gameService.LeaveGameAsync(roomCode, userId);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomCode);
+
+        // Broadcast PlayerLeft to remaining players in the room
+        await Clients.Group(roomCode).SendAsync("PlayerLeft", userId);
+        _logger.LogInformation("Broadcasted PlayerLeft event for user {UserId} in room {RoomCode}", userId, roomCode);
     }
 
     /// <summary>

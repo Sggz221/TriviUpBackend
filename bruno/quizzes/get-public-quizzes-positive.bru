@@ -1,0 +1,18 @@
+meta {
+  name: Get Public Quizzes - Positive
+  type: http
+  seq: 32
+  res.status: 200
+}
+
+get {
+  url: {{baseUrl}}/api/quizzes/public?page=1&pageSize=20
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: 200
+  body.quizzes: "exists"
+  body.totalCount: "exists"
+}

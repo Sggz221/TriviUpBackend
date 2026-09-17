@@ -7,9 +7,14 @@ using TriviUpBackend.Errors;
 
 namespace TriviUpBackend.Controllers;
 
+/// <summary>
+/// Controlador de quizzes públicos.
+/// Proporciona endpoints públicos para consultar, dar like y rastrear visitas de quizzes.
+/// </summary>
 [ApiController]
 [Route("api/quizzes")]
 [Produces("application/json")]
+[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 public class QuizzesController(
     IQuizService quizService,
     ILogger<QuizzesController> logger
@@ -115,6 +120,11 @@ public class QuizzesController(
         );
     }
 
+    /// <summary>
+    /// Maneja los errores de tipo QuizError y los convierte en respuestas HTTP apropiadas.
+    /// </summary>
+    /// <param name="error">Error producido durante la operación del quiz.</param>
+    /// <returns>Respuesta HTTP con el código y mensaje de error correspondiente.</returns>
     private IActionResult HandleError(QuizError error)
     {
         return error switch

@@ -13,7 +13,7 @@
 **/.env.*
 **/appsettings.Development.json
 **/appsettings.Production.json
-**/TriviUpTest
+# TriviUpTest is needed for test stage
 **/*.slnx
 **/*.suo
 **/*.user

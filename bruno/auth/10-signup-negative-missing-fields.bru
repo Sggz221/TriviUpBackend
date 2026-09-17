@@ -1,0 +1,24 @@
+meta {
+  name: Signup - Negative - Missing Fields
+  type: http
+  seq: 10
+  res.status: 400
+}
+
+post {
+  url: {{baseUrl}}/auth/signup
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "",
+    "email": "",
+    "password": ""
+  }
+}
+
+assert {
+  res.status: 400
+}

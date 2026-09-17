@@ -2,6 +2,10 @@ using TriviUpBackend.Game.Models;
 
 namespace TriviUpBackend.Game.Services;
 
+/// <summary>
+/// Implementación del gestor de turnos.
+/// Utiliza una cola para gestionar el orden de los jugadores.
+/// </summary>
 public class TurnManager : ITurnManager
 {
     private Queue<long> _turnOrder = new();

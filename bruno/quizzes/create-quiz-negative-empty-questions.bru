@@ -1,0 +1,28 @@
+meta {
+  name: Create Quiz - Negative - Empty Questions
+  type: http
+  seq: 22
+  res.status: 400
+}
+
+post {
+  url: {{baseUrl}}/api/cuestionarios
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "nombre": "Test Quiz Without Questions",
+    "esPublico": true,
+    "preguntas": []
+  }
+}
+
+assert {
+  res.status: 400
+}

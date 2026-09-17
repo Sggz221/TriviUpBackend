@@ -1,0 +1,16 @@
+meta {
+  name: Get Admin Stats - Negative - No Token
+  type: http
+  seq: 41
+  res.status: 401
+}
+
+get {
+  url: {{baseUrl}}/api/admin/stats
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: 401
+}

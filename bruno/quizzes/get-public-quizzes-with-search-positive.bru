@@ -1,0 +1,16 @@
+meta {
+  name: Get Public Quizzes With Search - Positive
+  type: http
+  seq: 33
+  res.status: 200
+}
+
+get {
+  url: {{baseUrl}}/api/quizzes/public?search=test&page=1&pageSize=20
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: 200
+}

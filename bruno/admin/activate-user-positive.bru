@@ -1,0 +1,20 @@
+meta {
+  name: Activate User - Positive
+  type: http
+  seq: 47
+  res.status: 404
+}
+
+post {
+  url: {{baseUrl}}/users/{{banTargetUserId}}/activate
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+assert {
+  res.status: 200
+}

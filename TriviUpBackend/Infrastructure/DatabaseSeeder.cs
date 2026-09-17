@@ -2,6 +2,11 @@
 
 namespace TriviUpBackend.Infrastructure;
 
+/// <summary>
+/// Siembro la base de datos con datos iniciales.
+/// Crea las tablas y carga datos de prueba si es necesario.
+/// </summary>
+[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 public static class DatabaseSeeder
 {
     public static void SeedDatabase(this WebApplication app)

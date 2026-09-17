@@ -1,0 +1,17 @@
+meta {
+  name: Get Quiz By ID - Positive
+  type: http
+  seq: 24
+  res.status: 404
+}
+
+get {
+  url: {{baseUrl}}/api/cuestionarios/{{quizId}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: 200
+  body.id: "{{quizId}}"
+}

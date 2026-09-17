@@ -1,0 +1,16 @@
+meta {
+  name: Like Quiz - Positive
+  type: http
+  seq: 34
+  res.status: 404
+}
+
+post {
+  url: {{baseUrl}}/api/quizzes/{{quizId}}/like
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: 200
+}

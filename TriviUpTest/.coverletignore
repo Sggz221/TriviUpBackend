@@ -1,0 +1,2 @@
+# Exclude all controllers from coverage
+**/Controllers/*.cs

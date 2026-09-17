@@ -1,0 +1,22 @@
+meta {
+  name: Update Me - Negative - No Token
+  type: http
+  seq: 17
+  res.status: 401
+}
+
+put {
+  url: {{baseUrl}}/users/me
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "newusername"
+  }
+}
+
+assert {
+  res.status: 401
+}

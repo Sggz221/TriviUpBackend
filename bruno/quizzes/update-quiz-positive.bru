@@ -1,0 +1,38 @@
+meta {
+  name: Update Quiz - Positive
+  type: http
+  seq: 28
+  res.status: 404
+}
+
+put {
+  url: {{baseUrl}}/api/cuestionarios/{{quizId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "nombre": "Updated Quiz Name",
+    "preguntas": [
+      {
+        "id": null,
+        "numeroPregunta": 1,
+        "enunciado": "What is 3+3?",
+        "respuestas": [
+          { "texto": "5", "esCorrecta": false },
+          { "texto": "6", "esCorrecta": true }
+        ]
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: 200
+  body.nombre: "Updated Quiz Name"
+}

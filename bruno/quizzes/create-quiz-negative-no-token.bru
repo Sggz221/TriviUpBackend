@@ -1,0 +1,33 @@
+meta {
+  name: Create Quiz - Negative - No Token
+  type: http
+  seq: 21
+  res.status: 401
+}
+
+post {
+  url: {{baseUrl}}/api/cuestionarios
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "nombre": "Test Quiz",
+    "esPublico": true,
+    "preguntas": [
+      {
+        "numeroPregunta": 1,
+        "enunciado": "What is 2+2?",
+        "respuestas": [
+          { "texto": "3", "esCorrecta": false },
+          { "texto": "4", "esCorrecta": true }
+        ]
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: 401
+}

@@ -2,6 +2,10 @@
 
 namespace TriviUpBackend.Infrastructure;
 
+/// <summary>
+/// Configuración de validación de modelos para la API.
+/// Personaliza las respuestas de error de validación.
+/// </summary>
 public static class ValidationConfig
 {
     public static IServiceCollection AddCustomValidation(this IServiceCollection services)

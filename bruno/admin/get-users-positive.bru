@@ -1,0 +1,20 @@
+meta {
+  name: Get All Users - Positive
+  type: http
+  seq: 43
+  res.status: 200
+}
+
+get {
+  url: {{baseUrl}}/users
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+assert {
+  res.status: 200
+}

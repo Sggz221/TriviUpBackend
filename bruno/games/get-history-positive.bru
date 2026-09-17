@@ -1,0 +1,20 @@
+meta {
+  name: Get Game History - Positive
+  type: http
+  seq: 48
+  res.status: 200
+}
+
+get {
+  url: {{baseUrl}}/api/game/history
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+assert {
+  res.status: 200
+}

@@ -2,6 +2,9 @@
 
 namespace TriviUpBackend.Infrastructure;
 
+/// <summary>
+/// Configuración de los controladores de la API.
+/// </summary>
 public static class ControllerConfig
 {
     public static IServiceCollection AddControllersConfiguration(this IServiceCollection services)

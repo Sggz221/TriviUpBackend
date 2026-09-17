@@ -4,12 +4,11 @@ meta {
   seq: 4
 }
 
-delete {{baseUrl}}/api/cuestionarios/:id {
-  headers {
+delete {{baseUrl}}/api/cuestionarios/:id:
+  headers: {
     Authorization: "Bearer {{token}}"
   }
 
   response: {
     status: 204
   }
-}

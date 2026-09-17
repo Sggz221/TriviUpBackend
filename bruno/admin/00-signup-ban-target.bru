@@ -1,0 +1,33 @@
+meta {
+  name: Signup - User For Ban Test
+  type: http
+  seq: 14
+  res.status: 201
+}
+
+post {
+  url: {{baseUrl}}/auth/signup
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "ban_target_{{timestamp}}",
+    "email": "ban_target_{{timestamp}}@test.com",
+    "password": "{{testPassword}}"
+  }
+}
+
+script:post-response {
+  if (res.status === 201) {
+    const body = res.getBody();
+    bru.setVar("banTargetUserId", body.user.id.toString());
+    console.log("Ban target user created with ID:", body.user.id);
+  }
+}
+
+assert {
+  res.status: 201
+  body.user.id: "exists"
+}

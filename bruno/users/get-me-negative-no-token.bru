@@ -1,0 +1,16 @@
+meta {
+  name: Get Me - Negative - No Token
+  type: http
+  seq: 14
+  res.status: 401
+}
+
+get {
+  url: {{baseUrl}}/users/me
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: 401
+}

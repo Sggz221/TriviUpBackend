@@ -7,6 +7,10 @@ using TriviUpBackend.Services.Cache;
 
 namespace TriviUpBackend.Cuestionarios.Services;
 
+/// <summary>
+/// Implementación del servicio de quizzes.
+/// Gestiona la lógica de negocio para crear, consultar y manipular quizzes.
+/// </summary>
 public class QuizService(
     IQuizRepository quizRepository,
     ILogger<QuizService> logger,
@@ -16,6 +20,7 @@ public class QuizService(
     private static readonly Random _random = new();
     private static readonly TimeSpan DefaultCacheDuration = TimeSpan.FromMinutes(5);
 
+    /// <inheritdoc cref="IQuizService.CreateAsync"/>
     public async Task<Result<QuizResponse, QuizError>> CreateAsync(CreateQuizRequest request, long creatorId)
     {
         logger.LogInformation("Creando quiz: {Nombre} por usuario {CreatorId}", request.Nombre, creatorId);
@@ -48,7 +53,17 @@ public class QuizService(
             }).ToList()
         };
 
-        var savedQuiz = await quizRepository.SaveAsync(quiz);
+        Quiz savedQuiz;
+        try
+        {
+            savedQuiz = await quizRepository.SaveAsync(quiz);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error saving quiz for user {CreatorId}", creatorId);
+            return Result.Failure<QuizResponse, QuizError>(new QuizValidationError("Error al guardar el quiz"));
+        }
+
         var quizWithQuestions = await quizRepository.FindByIdWithQuestionsAsync(savedQuiz.Id);
 
         if (quizWithQuestions == null)
@@ -56,14 +71,12 @@ public class QuizService(
             return Result.Failure<QuizResponse, QuizError>(new QuizNotFoundError("Quiz no encontrado después de crear"));
         }
 
-        // Invalidate public quizzes cache
-        await cacheService.RemoveByPrefixAsync("quizzes:public:");
-
         logger.LogInformation("Quiz creado exitosamente con ID: {Id}, GameCode: {GameCode}", savedQuiz.Id, savedQuiz.GameCode);
 
         return Result.Success<QuizResponse, QuizError>(QuizResponse.FromEntity(quizWithQuestions));
     }
 
+    /// <inheritdoc cref="IQuizService.GetByIdAsync"/>
     public async Task<Result<QuizResponse, QuizError>> GetByIdAsync(long id)
     {
         logger.LogInformation("Obteniendo quiz por ID: {Id}", id);
@@ -89,6 +102,7 @@ public class QuizService(
         return Result.Success<QuizResponse, QuizError>(response);
     }
 
+    /// <inheritdoc cref="IQuizService.GetByGameCodeAsync"/>
     public async Task<Result<QuizResponse, QuizError>> GetByGameCodeAsync(string gameCode)
     {
         logger.LogInformation("Obteniendo quiz por GameCode: {GameCode}", gameCode);
@@ -109,6 +123,7 @@ public class QuizService(
         return Result.Success<QuizResponse, QuizError>(QuizResponse.FromEntity(quizWithQuestions));
     }
 
+    /// <inheritdoc cref="IQuizService.GetAllAsync"/>
     public async Task<Result<(List<QuizResponse> Quizzes, int TotalCount), QuizError>> GetAllAsync(int page = 1, int pageSize = 10)
     {
         logger.LogInformation("Obteniendo lista de quizzes - Página: {Page}, Tamaño: {PageSize}", page, pageSize);
@@ -142,6 +157,7 @@ public class QuizService(
         return Result.Success<(List<QuizResponse>, int), QuizError>((quizResponses, totalCount));
     }
 
+    /// <inheritdoc cref="IQuizService.GetByCreatorIdAsync"/>
     public async Task<Result<List<QuizResponse>, QuizError>> GetByCreatorIdAsync(long creatorId)
     {
         logger.LogInformation("Obteniendo quizzes del usuario: {CreatorId}", creatorId);
@@ -152,6 +168,7 @@ public class QuizService(
         return Result.Success<List<QuizResponse>, QuizError>(quizResponses);
     }
 
+    /// <inheritdoc cref="IQuizService.UpdateAsync"/>
     public async Task<Result<QuizResponse, QuizError>> UpdateAsync(long id, UpdateQuizRequest request, long userId)
     {
         logger.LogInformation("Actualizando quiz {Id} por usuario {UserId}", id, userId);
@@ -206,15 +223,15 @@ public class QuizService(
             return Result.Failure<QuizResponse, QuizError>(new QuizNotFoundError($"Quiz con ID {id} no encontrado después de actualizar"));
         }
 
-        // Invalidate caches
+        // Invalidate individual quiz cache
         await cacheService.RemoveAsync($"quiz:{id}");
-        await cacheService.RemoveByPrefixAsync("quizzes:public:");
 
         logger.LogInformation("Quiz {Id} actualizado exitosamente", id);
 
         return Result.Success<QuizResponse, QuizError>(QuizResponse.FromEntity(updatedQuiz));
     }
 
+    /// <inheritdoc cref="IQuizService.DeleteAsync"/>
     public async Task<UnitResult<QuizError>> DeleteAsync(long id, long userId)
     {
         logger.LogInformation("Eliminando quiz {Id} por usuario {UserId}", id, userId);
@@ -233,83 +250,92 @@ public class QuizService(
 
         await quizRepository.DeleteAsync(id);
 
-        // Invalidate caches
+        // Invalidate individual quiz cache
         await cacheService.RemoveAsync($"quiz:{id}");
-        await cacheService.RemoveByPrefixAsync("quizzes:public:");
 
         logger.LogInformation("Quiz {Id} eliminado exitosamente", id);
 
         return UnitResult.Success<QuizError>();
     }
 
+    /// <inheritdoc cref="IQuizService.GetPublicQuizzesAsync"/>
     public async Task<Result<(List<PublicQuizResponse> Quizzes, int TotalCount), QuizError>> GetPublicQuizzesAsync(string? search, int page, int pageSize)
     {
-        logger.LogInformation("Obteniendo quizzes públicos - Search: {Search}, Page: {Page}, PageSize: {PageSize}",
+        logger.LogInformation("[QuizService] Obteniendo quizzes públicos sin cache - Search: {Search}, Page: {Page}, PageSize: {PageSize}",
             search, page, pageSize);
 
-        var cacheKey = $"quizzes:public:{search ?? ""}:{page}:{pageSize}";
-        var cached = await cacheService.GetAsync<(List<PublicQuizResponse> Quizzes, int TotalCount)>(cacheKey);
-        if (cached is not null)
-        {
-            logger.LogDebug("Cache hit for public quizzes with key {CacheKey}", cacheKey);
-            return Result.Success<(List<PublicQuizResponse>, int), QuizError>(cached);
-        }
-
+        // Sin cache - siempre obtener de la base de datos directamente
         var quizzes = await quizRepository.FindPublicQuizzesAsync(search, page, pageSize);
         var totalCount = await quizRepository.GetPublicQuizzesCountAsync(search);
 
         var publicQuizResponses = quizzes.Select(PublicQuizResponse.FromEntity).ToList();
         var result = (publicQuizResponses, totalCount);
 
-        await cacheService.SetAsync(cacheKey, result, DefaultCacheDuration);
-
-        logger.LogInformation("Se encontraron {Count} quizzes públicos de {Total} total", publicQuizResponses.Count, totalCount);
+        logger.LogInformation("[QuizService] Se encontraron {Count} quizzes públicos de {Total} total", publicQuizResponses.Count, totalCount);
 
         return Result.Success<(List<PublicQuizResponse>, int), QuizError>(result);
     }
 
+    /// <inheritdoc cref="IQuizService.IncrementLikesAsync"/>
     public async Task<Result<int, QuizError>> IncrementLikesAsync(long id)
     {
-        logger.LogInformation("Incrementando likes del quiz {Id}", id);
+        logger.LogInformation("[QuizService] Incrementando likes del quiz {Id}", id);
 
         var quiz = await quizRepository.FindByIdAsync(id);
         if (quiz == null)
         {
-            logger.LogWarning("Quiz no encontrado con ID: {Id}", id);
+            logger.LogWarning("[QuizService] Quiz no encontrado con ID: {Id}", id);
             return Result.Failure<int, QuizError>(new QuizNotFoundError($"Quiz con ID {id} no encontrado"));
         }
+
+        logger.LogInformation("[QuizService] Likes actuales del quiz {Id}: {Likes}", id, quiz.Likes);
 
         var updatedQuiz = await quizRepository.IncrementLikesAsync(id);
+
+        logger.LogInformation("[QuizService] Likes del quiz {Id} incrementados a: {Likes}", id, updatedQuiz.Likes);
+
         return Result.Success<int, QuizError>(updatedQuiz.Likes);
     }
 
+    /// <inheritdoc cref="IQuizService.DecrementLikesAsync"/>
     public async Task<Result<int, QuizError>> DecrementLikesAsync(long id)
     {
-        logger.LogInformation("Decrementando likes del quiz {Id}", id);
+        logger.LogInformation("[QuizService] Decrementando likes del quiz {Id}", id);
 
         var quiz = await quizRepository.FindByIdAsync(id);
         if (quiz == null)
         {
-            logger.LogWarning("Quiz no encontrado con ID: {Id}", id);
+            logger.LogWarning("[QuizService] Quiz no encontrado con ID: {Id}", id);
             return Result.Failure<int, QuizError>(new QuizNotFoundError($"Quiz con ID {id} no encontrado"));
         }
 
+        logger.LogInformation("[QuizService] Likes actuales del quiz {Id}: {Likes}", id, quiz.Likes);
+
         var updatedQuiz = await quizRepository.DecrementLikesAsync(id);
+
+        logger.LogInformation("[QuizService] Likes del quiz {Id} decrementados a: {Likes}", id, updatedQuiz.Likes);
+
         return Result.Success<int, QuizError>(updatedQuiz.Likes);
     }
 
+    /// <inheritdoc cref="IQuizService.IncrementVisitasAsync"/>
     public async Task<Result<int, QuizError>> IncrementVisitasAsync(long id)
     {
-        logger.LogInformation("Incrementando visitas del quiz {Id}", id);
+        logger.LogInformation("[QuizService] Incrementando visitas del quiz {Id}", id);
 
         var quiz = await quizRepository.FindByIdAsync(id);
         if (quiz == null)
         {
-            logger.LogWarning("Quiz no encontrado con ID: {Id}", id);
+            logger.LogWarning("[QuizService] Quiz no encontrado con ID: {Id}", id);
             return Result.Failure<int, QuizError>(new QuizNotFoundError($"Quiz con ID {id} no encontrado"));
         }
 
+        logger.LogInformation("[QuizService] Visitas actuales del quiz {Id}: {Visitas}", id, quiz.Visitas);
+
         var updatedQuiz = await quizRepository.IncrementVisitasAsync(id);
+
+        logger.LogInformation("[QuizService] Visitas del quiz {Id} incrementadas a: {Visitas}", id, updatedQuiz.Visitas);
+
         return Result.Success<int, QuizError>(updatedQuiz.Visitas);
     }
 

@@ -1,0 +1,35 @@
+meta {
+  name: Admin Signin - Setup for All Tests
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/signin
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "admin",
+    "password": "admin123"
+  }
+}
+
+script:post-response {
+  if (res.status === 200) {
+    const body = res.getBody();
+    bru.setVar("authToken", body.token);
+    bru.setVar("adminToken", body.token);
+    bru.setVar("userId", body.user.id.toString());
+    bru.setVar("adminId", body.user.id.toString());
+    console.log("Admin signin successful. Token stored.");
+  }
+}
+
+assert {
+  res.status: 200
+  body.token: "exists"
+  body.user.role: "Admin"
+}

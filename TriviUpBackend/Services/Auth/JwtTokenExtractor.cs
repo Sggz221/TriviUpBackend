@@ -4,10 +4,18 @@ using System.Text;
 
 namespace TriviUpBackend.Services.Auth;
 
+/// <summary>
+/// Implementación para extraer información de tokens JWT.
+/// Proporciona métodos para extraer claims y validar tokens.
+/// </summary>
 public class JwtTokenExtractor : IJwtTokenExtractor
 {
      private readonly ILogger<JwtTokenExtractor> _logger;
 
+    /// <summary>
+    /// Constructor del extractor de tokens JWT.
+    /// </summary>
+    /// <param name="logger">Logger para mensajes de diagnóstico.</param>
     public JwtTokenExtractor(ILogger<JwtTokenExtractor> logger)
     {
         _logger = logger;
@@ -134,6 +142,11 @@ public class JwtTokenExtractor : IJwtTokenExtractor
         }
     }
 
+    /// <summary>
+    /// Normaliza el tipo de claim a los tipos estándar de ClaimsPrincipal.
+    /// </summary>
+    /// <param name="type">Tipo original del claim.</param>
+    /// <returns>Tipo normalizado.</returns>
     private static string NormalizeClaimType(string type)
     {
         var lower = type.ToLowerInvariant();
@@ -199,6 +212,11 @@ public class JwtTokenExtractor : IJwtTokenExtractor
         }
     }
 
+    /// <summary>
+    /// Decodifica una cadena en Base64 URL-safe.
+    /// </summary>
+    /// <param name="input">Cadena codificada en Base64 URL.</param>
+    /// <returns>Cadena decodificada.</returns>
     private static string Base64UrlDecode(string input)
     {
         var base64 = input.Replace('-', '+').Replace('_', '/');
@@ -213,6 +231,11 @@ public class JwtTokenExtractor : IJwtTokenExtractor
         return Encoding.UTF8.GetString(bytes);
     }
 
+    /// <summary>
+    /// Lee y parsea un token JWT.
+    /// </summary>
+    /// <param name="token">Token JWT en formato cadena.</param>
+    /// <returns>Token parseado o null si falla.</returns>
     private JwtSecurityToken? ReadToken(string token)
     {
         if (string.IsNullOrWhiteSpace(token))

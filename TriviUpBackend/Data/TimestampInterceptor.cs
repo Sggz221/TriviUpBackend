@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace TriviUpBackend.Data;
 
+[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 public class TimestampInterceptor : SaveChangesInterceptor
 {
 

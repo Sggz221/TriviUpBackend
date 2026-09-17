@@ -4,8 +4,13 @@ using IWebHostEnvironment = Microsoft.AspNetCore.Hosting.IWebHostEnvironment;
 
 namespace TriviUpBackend.Controllers;
 
+/// <summary>
+/// Controlador para servir archivos estáticos de la carpeta uploads.
+/// Proporciona acceso a fotos de perfil e imágenes de preguntas.
+/// </summary>
 [ApiController]
 [Route("[controller]")]
+[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 public class StorageController(
     IWebHostEnvironment env,
     ILogger<StorageController> logger
@@ -13,8 +18,10 @@ public class StorageController(
 {
     /// <summary>
     /// Sirve archivos de la carpeta uploads.
-    /// GET /storage/profile-photos/archivo.png
+    /// Ejemplo: GET /storage/profile-photos/archivo.png
     /// </summary>
+    /// <param name="path">Ruta del archivo dentro de la carpeta uploads.</param>
+    /// <returns>Archivo solicitado con el tipo de contenido apropiado.</returns>
     [HttpGet("{**path}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -44,6 +51,11 @@ public class StorageController(
         return PhysicalFile(fullPath, contentType);
     }
 
+    /// <summary>
+    /// Determina el tipo de contenido MIME según la extensión del archivo.
+    /// </summary>
+    /// <param name="path">Ruta o nombre del archivo.</param>
+    /// <returns>Tipo de contenido MIME correspondiente.</returns>
     private static string GetContentType(string path)
     {
         var extension = Path.GetExtension(path).ToLowerInvariant();

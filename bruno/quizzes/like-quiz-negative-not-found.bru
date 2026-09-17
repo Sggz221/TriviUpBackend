@@ -1,0 +1,16 @@
+meta {
+  name: Like Quiz - Negative - Not Found
+  type: http
+  seq: 35
+  res.status: 404
+}
+
+post {
+  url: {{baseUrl}}/api/quizzes/999999/like
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: 404
+}

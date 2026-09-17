@@ -3,6 +3,9 @@ using TriviUpBackend.Cuestionarios.Entities;
 
 namespace TriviUpBackend.Cuestionarios.DTOs;
 
+/// <summary>
+/// Información pública de un quiz para listados.
+/// </summary>
 public record PublicQuizResponse
 {
     [property: JsonPropertyName("id")]
@@ -29,6 +32,9 @@ public record PublicQuizResponse
     [property: JsonPropertyName("fechaCreacion")]
     public DateTime FechaCreacion { get; init; }
 
+    /// <summary>
+    /// Crea un PublicQuizResponse desde una entidad Quiz.
+    /// </summary>
     public static PublicQuizResponse FromEntity(Quiz quiz) => new()
     {
         Id = quiz.Id,
@@ -42,6 +48,9 @@ public record PublicQuizResponse
     };
 }
 
+/// <summary>
+/// Respuesta paginada de quizzes públicos.
+/// </summary>
 public record PublicQuizzesResponse
 {
     [property: JsonPropertyName("quizzes")]
@@ -57,6 +66,9 @@ public record PublicQuizzesResponse
     public int PageSize { get; init; }
 }
 
+/// <summary>
+/// Respuesta genérica para contadores.
+/// </summary>
 public record CountResponse
 {
     [property: JsonPropertyName("count")]

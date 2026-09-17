@@ -1,5 +1,8 @@
 namespace TriviUpBackend.Game.Models;
 
+/// <summary>
+/// Representa un jugador dentro de una sala de juego.
+/// </summary>
 public class Player
 {
     public long UserId { get; set; }

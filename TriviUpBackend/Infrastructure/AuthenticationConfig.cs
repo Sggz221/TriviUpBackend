@@ -5,6 +5,9 @@ using TriviUpBackend.Models.Auth;
 
 namespace TriviUpBackend.Infrastructure;
 
+/// <summary>
+/// Configuración de autenticación JWT.
+/// </summary>
 public static class AuthenticationConfig
 {
   

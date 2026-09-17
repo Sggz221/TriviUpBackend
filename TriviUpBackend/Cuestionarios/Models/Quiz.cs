@@ -4,6 +4,10 @@ using TriviUpBackend.Data;
 
 namespace TriviUpBackend.Cuestionarios.Entities;
 
+/// <summary>
+/// Entidad de quiz o cuestionario.
+/// Representa un conjunto de preguntas de trivia.
+/// </summary>
 [Table("quizzes")]
 public class Quiz : ITimestamped
 {

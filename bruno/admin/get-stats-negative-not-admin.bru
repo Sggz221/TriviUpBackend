@@ -1,0 +1,20 @@
+meta {
+  name: Get Admin Stats - Negative - Non-Admin User
+  type: http
+  seq: 42
+  res.status: 200
+}
+
+get {
+  url: {{baseUrl}}/api/admin/stats
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+assert {
+  res.status: 403
+}

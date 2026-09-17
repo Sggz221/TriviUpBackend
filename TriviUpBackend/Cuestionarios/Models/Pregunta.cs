@@ -4,6 +4,10 @@ using TriviUpBackend.Data;
 
 namespace TriviUpBackend.Cuestionarios.Entities;
 
+/// <summary>
+/// Entidad de pregunta dentro de un quiz.
+/// Contiene el enunciado y sus posibles respuestas.
+/// </summary>
 [Table("preguntas")]
 public class Pregunta : ITimestamped
 {

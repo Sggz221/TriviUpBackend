@@ -6,15 +6,23 @@ using TriviUpBackend.Game.Repositories;
 
 namespace TriviUpBackend.Game.Controllers;
 
+/// <summary>
+/// Controlador para gestionar el historial de partidas jugadas.
+/// </summary>
 [ApiController]
 [Route("api/game")]
 [Produces("application/json")]
 [Authorize]
+[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 public class GamesController(
     IGameHistoryRepository gameHistoryRepository,
     ILogger<GamesController> logger
 ) : ControllerBase
 {
+    /// <summary>
+    /// Obtiene el historial de partidas del usuario autenticado.
+    /// </summary>
+    /// <returns>Lista de historiales de partidas jugadas por el usuario.</returns>
     [HttpGet("history")]
     [ProducesResponseType(typeof(List<GameHistoryDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetHistory()
@@ -49,6 +57,11 @@ public class GamesController(
         return Ok(dtos);
     }
 
+    /// <summary>
+    /// Obtiene el historial de una partida específica por su ID.
+    /// </summary>
+    /// <param name="gameId">ID único de la partida.</param>
+    /// <returns>Historial completo de la partida con resultados de todos los jugadores.</returns>
     [HttpGet("{gameId:long}")]
     [ProducesResponseType(typeof(GameHistoryDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

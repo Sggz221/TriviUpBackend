@@ -1,0 +1,20 @@
+meta {
+  name: Get Me - Negative - Invalid Token
+  type: http
+  seq: 15
+  res.status: 200
+}
+
+get {
+  url: {{baseUrl}}/users/me
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: "invalidtoken12345"
+}
+
+assert {
+  res.status: 401
+}

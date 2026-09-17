@@ -3,6 +3,9 @@ using TriviUpBackend.Cuestionarios.Entities;
 
 namespace TriviUpBackend.Cuestionarios.DTOs;
 
+/// <summary>
+/// Respuesta completa de un quiz con todas sus preguntas y respuestas.
+/// </summary>
 public record QuizResponse
 {
     [property: JsonPropertyName("id")]
@@ -26,6 +29,9 @@ public record QuizResponse
     [property: JsonPropertyName("fechaActualizacion")]
     public DateTime FechaActualizacion { get; init; }
 
+    /// <summary>
+    /// Crea un QuizResponse desde una entidad Quiz.
+    /// </summary>
     public static QuizResponse FromEntity(Quiz quiz) => new()
     {
         Id = quiz.Id,
@@ -38,6 +44,9 @@ public record QuizResponse
     };
 }
 
+/// <summary>
+/// Respuesta de una pregunta dentro de un quiz.
+/// </summary>
 public record PreguntaResponse
 {
     [property: JsonPropertyName("id")]
@@ -55,6 +64,9 @@ public record PreguntaResponse
     [property: JsonPropertyName("respuestas")]
     public List<RespuestaResponse> Respuestas { get; init; } = new();
 
+    /// <summary>
+    /// Crea una PreguntaResponse desde una entidad Pregunta.
+    /// </summary>
     public static PreguntaResponse FromEntity(Pregunta pregunta) => new()
     {
         Id = pregunta.Id,
@@ -65,6 +77,9 @@ public record PreguntaResponse
     };
 }
 
+/// <summary>
+/// Respuesta de una pregunta con su texto y si es correcta.
+/// </summary>
 public record RespuestaResponse
 {
     [property: JsonPropertyName("id")]
@@ -76,6 +91,9 @@ public record RespuestaResponse
     [property: JsonPropertyName("esCorrecta")]
     public bool EsCorrecta { get; init; }
 
+    /// <summary>
+    /// Crea una RespuestaResponse desde una entidad Respuesta.
+    /// </summary>
     public static RespuestaResponse FromEntity(Respuesta respuesta) => new()
     {
         Id = respuesta.Id,

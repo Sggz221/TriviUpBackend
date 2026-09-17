@@ -4,12 +4,11 @@ meta {
   seq: 2
 }
 
-get {{baseUrl}}/api/cuestionarios/:id {
-  headers {
+get {{baseUrl}}/api/cuestionarios/:id:
+  headers: {
     Authorization: "Bearer {{token}}"
   }
 
   response: {
     status: 200
   }
-}

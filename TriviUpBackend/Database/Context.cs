@@ -6,6 +6,10 @@ using TriviUpBackend.Game.Models;
 
 namespace TriviUpBackend.Database;
 
+/// <summary>
+/// Contexto de Entity Framework Core para la base de datos.
+/// Configura los DbSets y las entidades del modelo.
+/// </summary>
 public class Context(DbContextOptions options) : DbContext(options)
 {
     public DbSet<User> Users { get; set; } = null!;

@@ -1,0 +1,16 @@
+meta {
+  name: Record Visit - Negative - Not Found
+  type: http
+  seq: 38
+  res.status: 404
+}
+
+post {
+  url: {{baseUrl}}/api/quizzes/999999/visit
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: 404
+}

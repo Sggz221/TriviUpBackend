@@ -1,0 +1,25 @@
+meta {
+  name: Signup - Negative - Username With Invalid Characters
+  type: http
+  seq: 8
+  res.status: 400
+}
+
+post {
+  url: {{baseUrl}}/auth/signup
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "invalid@user!",
+    "email": "valid@test.com",
+    "password": "{{testPassword}}"
+  }
+}
+
+assert {
+  res.status: 400
+  body.message: "@contains:usuario"
+}

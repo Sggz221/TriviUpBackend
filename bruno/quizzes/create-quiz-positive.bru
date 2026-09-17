@@ -1,0 +1,47 @@
+meta {
+  name: Create Quiz - Positive
+  type: http
+  seq: 20
+  res.status: 201
+}
+
+post {
+  url: {{baseUrl}}/api/cuestionarios
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "nombre": "Test Quiz from Bruno",
+    "esPublico": true,
+    "preguntas": [
+      {
+        "numeroPregunta": 1,
+        "enunciado": "What is 2+2?",
+        "respuestas": [
+          { "texto": "3", "esCorrecta": false },
+          { "texto": "4", "esCorrecta": true }
+        ]
+      }
+    ]
+  }
+}
+
+script:post-response {
+  if (res.status === 201) {
+    const body = res.getBody();
+    bru.setVar("quizId", body.id.toString());
+    console.log("Quiz created with ID:", body.id);
+  }
+}
+
+assert {
+  res.status: 201
+  body.id: "exists"
+  body.nombre: "Test Quiz from Bruno"
+}

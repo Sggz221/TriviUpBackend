@@ -1,0 +1,22 @@
+meta {
+  name: Get Me - Positive
+  type: http
+  seq: 13
+  res.status: 200
+}
+
+get {
+  url: {{baseUrl}}/users/me
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+assert {
+  res.status: 200
+  body.id: "{{userId}}"
+  body.username: "@contains:"
+}

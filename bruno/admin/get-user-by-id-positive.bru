@@ -1,0 +1,21 @@
+meta {
+  name: Get User By ID - Positive
+  type: http
+  seq: 44
+  res.status: 200
+}
+
+get {
+  url: {{baseUrl}}/users/{{userId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+assert {
+  res.status: 200
+  body.id: "{{userId}}"
+}

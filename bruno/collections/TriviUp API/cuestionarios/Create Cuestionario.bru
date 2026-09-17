@@ -4,12 +4,12 @@ meta {
   seq: 3
 }
 
-post {{baseUrl}}/api/cuestionarios {
-  headers {
+post {{baseUrl}}/api/cuestionarios:
+  headers: {
     Authorization: "Bearer {{token}}"
   }
 
-  body: {
+  body:json: {
     nombre: "Test Quiz",
     esPublico: true,
     preguntas: [
@@ -26,4 +26,3 @@ post {{baseUrl}}/api/cuestionarios {
   response: {
     status: 201
   }
-}

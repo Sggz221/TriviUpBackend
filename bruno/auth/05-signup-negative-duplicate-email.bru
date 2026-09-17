@@ -1,0 +1,25 @@
+meta {
+  name: Signup - Negative - Duplicate Email
+  type: http
+  seq: 5
+  res.status: 409
+}
+
+post {
+  url: {{baseUrl}}/auth/signup
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "anotheruser",
+    "email": "admin@funkoapi.com",
+    "password": "{{testPassword}}"
+  }
+}
+
+assert {
+  res.status: 409
+  body.message: "@contains:email"
+}

@@ -1,0 +1,26 @@
+meta {
+  name: Update Me - Negative - Duplicate Username
+  type: http
+  seq: 18
+  res.status: 200
+}
+
+put {
+  url: {{baseUrl}}/users/me
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "username": "{{newUsername}}"
+  }
+}
+
+assert {
+  res.status: 409
+}

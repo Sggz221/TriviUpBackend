@@ -1,0 +1,23 @@
+meta {
+  name: Signin - Negative - Missing Fields
+  type: http
+  seq: 13
+  res.status: 400
+}
+
+post {
+  url: {{baseUrl}}/auth/signin
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "",
+    "password": ""
+  }
+}
+
+assert {
+  res.status: 400
+}

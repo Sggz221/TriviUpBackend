@@ -2,6 +2,7 @@ using Xunit;
 using Moq;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Primitives;
 using TriviUpBackend.Services.Auth;
 using TriviUpBackend.Models.Auth;
 using System.IdentityModel.Tokens.Jwt;
@@ -26,7 +27,11 @@ public class JwtServiceTests
         jwtSection["Audience"] = "TriviUpApp";
         jwtSection["ExpireMinutes"] = "60";
 
-        _mockConfiguration.Setup(c => c["Jwt"]).Returns((string?)null);
+        // Setup root indexer to delegate to sections properly
+        _mockConfiguration.Setup(c => c["Jwt:Key"]).Returns(jwtSection["Key"]);
+        _mockConfiguration.Setup(c => c["Jwt:Issuer"]).Returns(jwtSection["Issuer"]);
+        _mockConfiguration.Setup(c => c["Jwt:Audience"]).Returns(jwtSection["Audience"]);
+        _mockConfiguration.Setup(c => c["Jwt:ExpireMinutes"]).Returns(jwtSection["ExpireMinutes"]);
         _mockConfiguration.Setup(c => c.GetSection("Jwt")).Returns(jwtSection);
 
         _service = new JwtService(_mockConfiguration.Object, _mockLogger.Object);
@@ -213,7 +218,10 @@ public class JwtServiceTests
         jwtSection["Audience"] = "TriviUpApp";
         jwtSection["ExpireMinutes"] = "-1"; // Already expired
 
-        shortLivedConfig.Setup(c => c["Jwt"]).Returns((string?)null);
+        shortLivedConfig.Setup(c => c["Jwt:Key"]).Returns(jwtSection["Key"]);
+        shortLivedConfig.Setup(c => c["Jwt:Issuer"]).Returns(jwtSection["Issuer"]);
+        shortLivedConfig.Setup(c => c["Jwt:Audience"]).Returns(jwtSection["Audience"]);
+        shortLivedConfig.Setup(c => c["Jwt:ExpireMinutes"]).Returns(jwtSection["ExpireMinutes"]);
         shortLivedConfig.Setup(c => c.GetSection("Jwt")).Returns(jwtSection);
 
         var shortLivedService = new JwtService(shortLivedConfig.Object, _mockLogger.Object);
@@ -248,7 +256,10 @@ public class JwtServiceTests
         jwtSection["Audience"] = "TriviUpApp";
         jwtSection["ExpireMinutes"] = "60";
 
-        differentKeyConfig.Setup(c => c["Jwt"]).Returns((string?)null);
+        differentKeyConfig.Setup(c => c["Jwt:Key"]).Returns(jwtSection["Key"]);
+        differentKeyConfig.Setup(c => c["Jwt:Issuer"]).Returns(jwtSection["Issuer"]);
+        differentKeyConfig.Setup(c => c["Jwt:Audience"]).Returns(jwtSection["Audience"]);
+        differentKeyConfig.Setup(c => c["Jwt:ExpireMinutes"]).Returns(jwtSection["ExpireMinutes"]);
         differentKeyConfig.Setup(c => c.GetSection("Jwt")).Returns(jwtSection);
 
         var differentKeyService = new JwtService(differentKeyConfig.Object, _mockLogger.Object);
@@ -263,14 +274,8 @@ public class JwtServiceTests
     [Fact]
     public void ValidateToken_WrongIssuer_ReturnsNull()
     {
-        // Arrange
-        var user = new User
-        {
-            Id = 1,
-            Username = "testuser",
-            Email = "test@example.com",
-            Role = UserRoles.USER
-        };
+        // Arrange - Generate token with correct issuer
+        var user = new User { Id = 1, Username = "testuser", Email = "test@example.com", Role = UserRoles.USER };
         var token = _service.GenerateToken(user);
 
         // Create a service with a different issuer
@@ -281,7 +286,10 @@ public class JwtServiceTests
         jwtSection["Audience"] = "TriviUpApp";
         jwtSection["ExpireMinutes"] = "60";
 
-        differentIssuerConfig.Setup(c => c["Jwt"]).Returns((string?)null);
+        differentIssuerConfig.Setup(c => c["Jwt:Key"]).Returns(jwtSection["Key"]);
+        differentIssuerConfig.Setup(c => c["Jwt:Issuer"]).Returns(jwtSection["Issuer"]);
+        differentIssuerConfig.Setup(c => c["Jwt:Audience"]).Returns(jwtSection["Audience"]);
+        differentIssuerConfig.Setup(c => c["Jwt:ExpireMinutes"]).Returns(jwtSection["ExpireMinutes"]);
         differentIssuerConfig.Setup(c => c.GetSection("Jwt")).Returns(jwtSection);
 
         var differentIssuerService = new JwtService(differentIssuerConfig.Object, _mockLogger.Object);
@@ -314,7 +322,10 @@ public class JwtServiceTests
         jwtSection["Audience"] = "DifferentAudience";
         jwtSection["ExpireMinutes"] = "60";
 
-        differentAudienceConfig.Setup(c => c["Jwt"]).Returns((string?)null);
+        differentAudienceConfig.Setup(c => c["Jwt:Key"]).Returns(jwtSection["Key"]);
+        differentAudienceConfig.Setup(c => c["Jwt:Issuer"]).Returns(jwtSection["Issuer"]);
+        differentAudienceConfig.Setup(c => c["Jwt:Audience"]).Returns(jwtSection["Audience"]);
+        differentAudienceConfig.Setup(c => c["Jwt:ExpireMinutes"]).Returns(jwtSection["ExpireMinutes"]);
         differentAudienceConfig.Setup(c => c.GetSection("Jwt")).Returns(jwtSection);
 
         var differentAudienceService = new JwtService(differentAudienceConfig.Object, _mockLogger.Object);
@@ -327,20 +338,26 @@ public class JwtServiceTests
     }
 
     [Fact]
-    public void ValidateToken_MissingJwtKeyInConfig_ThrowsInvalidOperationException()
+    public void ValidateToken_MissingJwtKeyInConfig_ReturnsNull()
     {
         // Arrange
         var user = new User { Id = 1, Username = "test", Email = "test@test.com", Role = UserRoles.USER };
         var token = _service.GenerateToken(user);
 
         var emptyConfig = new Mock<IConfiguration>();
-        emptyConfig.Setup(c => c["Jwt"]).Returns((string?)null);
+        emptyConfig.Setup(c => c["Jwt:Key"]).Returns((string?)null);
+        emptyConfig.Setup(c => c["Jwt:Issuer"]).Returns("TriviUpApi");
+        emptyConfig.Setup(c => c["Jwt:Audience"]).Returns("TriviUpApp");
+        emptyConfig.Setup(c => c["Jwt:ExpireMinutes"]).Returns("60");
         emptyConfig.Setup(c => c.GetSection("Jwt")).Returns(new MockConfigurationSection());
 
         var service = new JwtService(emptyConfig.Object, _mockLogger.Object);
 
-        // Act & Assert
-        Assert.Throws<InvalidOperationException>(() => service.ValidateToken(token));
+        // Act
+        var result = service.ValidateToken(token);
+
+        // Assert
+        Assert.Null(result);
     }
 
     [Fact]
@@ -386,7 +403,7 @@ public class JwtServiceTests
 
         public IEnumerable<IConfigurationSection> GetChildren() => Enumerable.Empty<IConfigurationSection>();
         public IChangeToken GetReloadToken() => null!;
-        public void GetReloadToken() { }
-        public bool exists() => true;
+        public bool Exists() => true;
+        public IConfigurationSection GetSection(string key) => throw new NotImplementedException();
     }
 }

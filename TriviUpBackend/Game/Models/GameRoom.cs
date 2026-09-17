@@ -2,6 +2,10 @@ using TriviUpBackend.Cuestionarios.Entities;
 
 namespace TriviUpBackend.Game.Models;
 
+/// <summary>
+/// Representa una sala de juego en tiempo real.
+/// Contiene el estado del juego, jugadores, preguntas y gestión de turnos.
+/// </summary>
 public class GameRoom
 {
     public string RoomCode { get; set; } = string.Empty;

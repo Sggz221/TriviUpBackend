@@ -1,0 +1,20 @@
+meta {
+  name: Get My Quizzes - Positive
+  type: http
+  seq: 27
+  res.status: 200
+}
+
+get {
+  url: {{baseUrl}}/api/cuestionarios/mis-cuestionarios
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+assert {
+  res.status: 200
+}

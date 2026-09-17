@@ -4,6 +4,9 @@ using TriviUpBackend.Data;
 
 namespace TriviUpBackend.Cuestionarios.Entities;
 
+/// <summary>
+/// Entidad de respuesta a una pregunta.
+/// </summary>
 [Table("respuestas")]
 public class Respuesta : ITimestamped
 {

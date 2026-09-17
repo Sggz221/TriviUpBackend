@@ -1,5 +1,9 @@
 namespace TriviUpBackend.Game.Models;
 
+/// <summary>
+/// Historial de una partida jugado.
+/// Se persiste en base de datos al finalizar una partida.
+/// </summary>
 public class GameHistory
 {
     public long Id { get; set; }
@@ -11,13 +15,18 @@ public class GameHistory
     public DateTime EndedAt { get; set; }
     public string PlayerResultsJson { get; set; } = "[]";
 
-    // Computed property to deserialize PlayerResults
+    /// <summary>
+    /// Propiedad calculada que deserializa los resultados de jugadores desde JSON.
+    /// </summary>
     public List<PlayerResult> PlayerResults =>
         string.IsNullOrEmpty(PlayerResultsJson)
             ? new List<PlayerResult>()
             : System.Text.Json.JsonSerializer.Deserialize<List<PlayerResult>>(PlayerResultsJson) ?? new List<PlayerResult>();
 }
 
+/// <summary>
+/// Resultado individual de un jugador al finalizar la partida.
+/// </summary>
 public class PlayerResult
 {
     public long UserId { get; set; }

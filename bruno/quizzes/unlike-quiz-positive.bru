@@ -1,0 +1,16 @@
+meta {
+  name: Unlike Quiz - Positive
+  type: http
+  seq: 36
+  res.status: 404
+}
+
+delete {
+  url: {{baseUrl}}/api/quizzes/{{quizId}}/like
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: 200
+}

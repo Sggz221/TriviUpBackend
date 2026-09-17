@@ -1,0 +1,16 @@
+meta {
+  name: Get Quiz By ID - Negative - Not Found
+  type: http
+  seq: 25
+  res.status: 404
+}
+
+get {
+  url: {{baseUrl}}/api/cuestionarios/999999
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: 404
+}

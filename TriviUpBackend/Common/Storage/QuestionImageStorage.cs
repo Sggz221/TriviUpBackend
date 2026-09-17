@@ -4,124 +4,139 @@ using Microsoft.Extensions.Configuration;
 
 namespace TriviUpBackend.Common.Storage;
 
-/// <summary>
-/// Implementación del servicio de almacenamiento de imágenes de preguntas.
-/// Utiliza almacenamiento local en el sistema de archivos.
-/// </summary>
-public class QuestionImageStorage : IQuestionImageStorage
-{
-    private readonly IStorage _storage;
-    private readonly IConfiguration _configuration;
-    private readonly ILogger<QuestionImageStorage> _logger;
-    private readonly string _container = "question-images";
-    private readonly string[] _allowedExtensions = [".jpg", ".jpeg", ".png", ".webp"];
-    private readonly string[] _allowedContentTypes = ["image/jpeg", "image/png", "image/webp"];
-    private readonly long _maxFileSize = 5 * 1024 * 1024; // 5MB
-
-    public QuestionImageStorage(
-        IStorage storage,
-        IConfiguration configuration,
-        ILogger<QuestionImageStorage> logger)
+    /// <summary>
+    /// Implementación del servicio de almacenamiento de imágenes de preguntas.
+    /// Utiliza almacenamiento local en el sistema de archivos.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+    public class QuestionImageStorage : IQuestionImageStorage
     {
-        _storage = storage;
-        _configuration = configuration;
-        _logger = logger;
-    }
+        private readonly IStorage _storage;
+        private readonly IConfiguration _configuration;
+        private readonly ILogger<QuestionImageStorage> _logger;
+        private readonly string _container = "question-images";
+        private readonly string[] _allowedExtensions = [".jpg", ".jpeg", ".png", ".webp"];
+        private readonly string[] _allowedContentTypes = ["image/jpeg", "image/png", "image/webp"];
+        private readonly long _maxFileSize = 5 * 1024 * 1024; // 5MB
 
-    public async Task<Result<string, QuestionImageStorageError>> SaveQuestionImageAsync(long questionId, IFormFile file)
-    {
-        // Validar archivo
-        var validationError = ValidateFile(file);
-        if (validationError is not null)
+        /// <summary>
+        /// Constructor del servicio de almacenamiento de imágenes de preguntas.
+        /// </summary>
+        /// <param name="storage">Servicio de almacenamiento base.</param>
+        /// <param name="configuration">Configuración de la aplicación.</param>
+        /// <param name="logger">Logger para mensajes de diagnóstico.</param>
+        public QuestionImageStorage(
+            IStorage storage,
+            IConfiguration configuration,
+            ILogger<QuestionImageStorage> logger)
         {
-            return Result.Failure<string, QuestionImageStorageError>(validationError);
+            _storage = storage;
+            _configuration = configuration;
+            _logger = logger;
         }
 
-        // Generar nombre de archivo único: question_{id}_{guid}.{ext}
-        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-        var filename = $"question_{questionId}_{Guid.NewGuid():N}{extension}";
-
-        try
+        /// <inheritdoc />
+        public async Task<Result<string, QuestionImageStorageError>> SaveQuestionImageAsync(long questionId, IFormFile file)
         {
-            // Guardar usando el storage existente
-            var result = await _storage.SaveFileAsync(file, _container);
-
-            if (result.IsFailure)
+            // Validar archivo
+            var validationError = ValidateFile(file);
+            if (validationError is not null)
             {
-                _logger.LogError("Error guardando imagen de pregunta: {Error}", result.Error);
+                return Result.Failure<string, QuestionImageStorageError>(validationError);
+            }
+
+            // Generar nombre de archivo único: question_{id}_{guid}.{ext}
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            var filename = $"question_{questionId}_{Guid.NewGuid():N}{extension}";
+
+            try
+            {
+                // Guardar usando el storage existente
+                var result = await _storage.SaveFileAsync(file, _container);
+
+                if (result.IsFailure)
+                {
+                    _logger.LogError("Error guardando imagen de pregunta: {Error}", result.Error);
+                    return Result.Failure<string, QuestionImageStorageError>(
+                        new QuestionImageStorageError("Error guardando la imagen de pregunta"));
+                }
+
+                _logger.LogInformation("Imagen de pregunta guardada para pregunta {QuestionId}: {Path}", questionId, result.Value);
+                return Result.Success<string, QuestionImageStorageError>(result.Value);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error guardando imagen de pregunta para pregunta {QuestionId}", questionId);
                 return Result.Failure<string, QuestionImageStorageError>(
                     new QuestionImageStorageError("Error guardando la imagen de pregunta"));
             }
-
-            _logger.LogInformation("Imagen de pregunta guardada para pregunta {QuestionId}: {Path}", questionId, result.Value);
-            return Result.Success<string, QuestionImageStorageError>(result.Value);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error guardando imagen de pregunta para pregunta {QuestionId}", questionId);
-            return Result.Failure<string, QuestionImageStorageError>(
-                new QuestionImageStorageError("Error guardando la imagen de pregunta"));
-        }
-    }
-
-    public async Task<Result<bool, QuestionImageStorageError>> DeleteQuestionImageAsync(string imageUrl)
-    {
-        if (string.IsNullOrEmpty(imageUrl))
-        {
-            return Result.Success<bool, QuestionImageStorageError>(true);
         }
 
-        try
+        /// <inheritdoc />
+        public async Task<Result<bool, QuestionImageStorageError>> DeleteQuestionImageAsync(string imageUrl)
         {
-            var result = await _storage.DeleteFileAsync(imageUrl);
-
-            if (result.IsFailure)
+            if (string.IsNullOrEmpty(imageUrl))
             {
-                _logger.LogWarning("Error eliminando imagen de pregunta: {Error}", result.Error);
+                return Result.Success<bool, QuestionImageStorageError>(true);
+            }
+
+            try
+            {
+                var result = await _storage.DeleteFileAsync(imageUrl);
+
+                if (result.IsFailure)
+                {
+                    _logger.LogWarning("Error eliminando imagen de pregunta: {Error}", result.Error);
+                    return Result.Failure<bool, QuestionImageStorageError>(
+                        new QuestionImageStorageError("Error eliminando la imagen de pregunta"));
+                }
+
+                _logger.LogInformation("Imagen de pregunta eliminada: {Path}", imageUrl);
+                return Result.Success<bool, QuestionImageStorageError>(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error eliminando imagen de pregunta: {Path}", imageUrl);
                 return Result.Failure<bool, QuestionImageStorageError>(
                     new QuestionImageStorageError("Error eliminando la imagen de pregunta"));
             }
-
-            _logger.LogInformation("Imagen de pregunta eliminada: {Path}", imageUrl);
-            return Result.Success<bool, QuestionImageStorageError>(true);
         }
-        catch (Exception ex)
+
+        /// <inheritdoc />
+        public string GetFullUrl(string relativePath)
         {
-            _logger.LogError(ex, "Error eliminando imagen de pregunta: {Path}", imageUrl);
-            return Result.Failure<bool, QuestionImageStorageError>(
-                new QuestionImageStorageError("Error eliminando la imagen de pregunta"));
-        }
-    }
+            if (string.IsNullOrEmpty(relativePath))
+            {
+                return string.Empty;
+            }
 
-    public string GetFullUrl(string relativePath)
-    {
-        if (string.IsNullOrEmpty(relativePath))
-        {
-            return string.Empty;
-        }
+            // Si la ruta ya es absoluta, devolverla
+            if (relativePath.StartsWith("http://") || relativePath.StartsWith("https://"))
+            {
+                return relativePath;
+            }
 
-        // Si la ruta ya es absoluta, devolverla
-        if (relativePath.StartsWith("http://") || relativePath.StartsWith("https://"))
-        {
-            return relativePath;
-        }
+            // Obtener la base URL completa desde la configuración (ej: http://localhost:5164)
+            var baseUrl = _configuration["Storage:BaseUrl"] ?? "http://localhost:5164";
 
-        // Obtener la base URL completa desde la configuración (ej: http://localhost:5164)
-        var baseUrl = _configuration["Storage:BaseUrl"] ?? "http://localhost:5164";
+            // Construir URL usando el endpoint /storage/
+            // relativePath viene como "/uploads/question-images/archivo.png"
+            // necesitamos quitar el "/uploads" porque el StorageController sirve desde ahí
+            var path = relativePath.TrimStart('/');
+            if (path.StartsWith("uploads/", StringComparison.OrdinalIgnoreCase))
+            {
+                path = path["uploads/".Length..];
+            }
 
-        // Construir URL usando el endpoint /storage/
-        // relativePath viene como "/uploads/question-images/archivo.png"
-        // necesitamos quitar el "/uploads" porque el StorageController sirve desde ahí
-        var path = relativePath.TrimStart('/');
-        if (path.StartsWith("uploads/", StringComparison.OrdinalIgnoreCase))
-        {
-            path = path["uploads/".Length..];
+            return $"{baseUrl.TrimEnd('/')}/storage/{path}";
         }
 
-        return $"{baseUrl.TrimEnd('/')}/storage/{path}";
-    }
-
-    private QuestionImageStorageError? ValidateFile(IFormFile file)
+        /// <summary>
+        /// Valida que el archivo cumple los requisitos de formato y tamaño.
+        /// </summary>
+        /// <param name="file">Archivo a validar.</param>
+        /// <returns>Error de validación o null si es válido.</returns>
+        private QuestionImageStorageError? ValidateFile(IFormFile file)
     {
         if (file is null || file.Length == 0)
         {

@@ -1,0 +1,14 @@
+{
+  "name": "triviup-api-tests",
+  "version": "1.0.0",
+  "description": "Bruno API Tests for TriviUp Backend",
+  "type": "module",
+  "scripts": {
+    "test": "node run-tests.js",
+    "test:auth": "node run-tests.js --filter=auth",
+    "test:quizzes": "node run-tests.js --filter=quizzes"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}

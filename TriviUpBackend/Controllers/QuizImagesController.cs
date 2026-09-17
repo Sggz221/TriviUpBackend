@@ -5,10 +5,15 @@ using TriviUpBackend.Common.Storage;
 
 namespace TriviUpBackend.Controllers;
 
+/// <summary>
+/// Controlador para gestionar imágenes asociadas a quizzes.
+/// Permite subir imágenes que se utilizarán en las preguntas de un cuestionario.
+/// </summary>
 [ApiController]
 [Route("api/cuestionarios/imagenes")]
 [Produces("application/json")]
 [Authorize]
+[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 public class QuizImagesController(
     IQuestionImageStorage questionImageStorage,
     ILogger<QuizImagesController> logger
@@ -17,8 +22,9 @@ public class QuizImagesController(
     /// <summary>
     /// Sube una imagen de pregunta sin asociarla a una pregunta específica.
     /// Útil cuando se crea un quiz nuevo y las preguntas aún no tienen ID.
-    /// POST /api/cuestionarios/imagenes
     /// </summary>
+    /// <param name="file">Archivo de imagen a subir (máximo 5MB, formatos permitidos: png, jpg, jpeg, gif, webp).</param>
+    /// <returns>Ruta relativa y URL completa de la imagen subida.</returns>
     [HttpPost]
     [ProducesResponseType(typeof(QuizImageResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -59,6 +65,10 @@ public class QuizImagesController(
         });
     }
 
+    /// <summary>
+    /// Extrae el ID del usuario autenticado desde los claims del token JWT.
+    /// </summary>
+    /// <returns>ID del usuario o null si no se encuentra.</returns>
     private long? GetCurrentUserId()
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);

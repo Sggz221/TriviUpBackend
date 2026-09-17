@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using TriviUpBackend.Repositories.Users;
 using TriviUpBackend.Services.Auth;
 using TriviUpBackend.Cuestionarios.Repositories;
@@ -8,6 +9,10 @@ using TriviUpBackend.Services.Cache;
 
 namespace TriviUpBackend.Infrastructure;
 
+/// <summary>
+/// Configuración de inyección de dependencias.
+/// Registra todos los repositorios, servicios y almacenamiento en el contenedor de servicios.
+/// </summary>
 public static class DependencyInjectionConfig
 {
     public static IServiceCollection AddRepositoriesAndServices(this IServiceCollection services, IConfiguration configuration)
@@ -32,17 +37,10 @@ public static class DependencyInjectionConfig
         services.AddScoped<IProfilePhotoStorage, ProfilePhotoStorage>();
         services.AddScoped<IQuestionImageStorage, QuestionImageStorage>();
 
-        // Cache
-        services.AddStackExchangeRedisCache(options =>
-        {
-            options.Configuration = configuration.GetConnectionString("Redis")
-                ?? configuration["Redis:ConnectionString"]
-                ?? "localhost:6379";
-            options.InstanceName = "TriviUp:";
-        });
-        services.AddScoped<ICacheService, RedisCacheService>();
+        // Cache - memoria local (quizzes). El estado de partidas usa Redis vía IGameSessionStore.
+        services.AddMemoryCache();
+        services.AddScoped<ICacheService, MemoryCacheService>();
 
-        // Eventos
         //services.AddScoped<IEventPublisher, EventPublisher>();
 
         return services;
