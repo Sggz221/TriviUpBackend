@@ -14,6 +14,11 @@ public interface IGameSessionStore
 
     Task SaveAsync(GameSessionDocument session, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Elimina la sesión por completo (p. ej. al cerrar la sala porque el owner la abandonó).
+    /// </summary>
+    Task RemoveAsync(string roomCode, CancellationToken cancellationToken = default);
+
     Task MarkFinishedAsync(GameSessionDocument session, TimeSpan ttl, CancellationToken cancellationToken = default);
 
     Task<IAsyncDisposable?> AcquireLockAsync(string roomCode, TimeSpan timeout, CancellationToken cancellationToken = default);

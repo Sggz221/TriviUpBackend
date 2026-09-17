@@ -146,6 +146,14 @@ public record GameResumedDto(
 );
 
 /// <summary>
+/// Datos cuando la sala se cierra (p. ej. el owner la abandona mientras está en espera).
+/// </summary>
+public record RoomClosedDto(
+    string RoomCode,
+    string Reason
+);
+
+/// <summary>
 /// Estadísticas generales del sistema para administradores.
 /// </summary>
 public record AdminStatsDto(

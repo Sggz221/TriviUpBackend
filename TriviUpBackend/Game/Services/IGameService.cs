@@ -35,7 +35,13 @@ public interface IGameService
     /// </summary>
     /// <param name="roomCode">Código de la sala.</param>
     /// <param name="userId">ID del usuario.</param>
-    Task LeaveGameAsync(string roomCode, long userId);
+    /// <param name="isExplicitLeave">
+    /// true si el jugador pulsó "Salir de la Sala" explícitamente (no una desconexión de socket).
+    /// Si es el owner y la sala está en espera, esto cierra la sala para todos en vez de
+    /// transferir el ownership.
+    /// </param>
+    /// <returns>true si la sala se cerró como consecuencia de este leave.</returns>
+    Task<bool> LeaveGameAsync(string roomCode, long userId, bool isExplicitLeave = false);
 
     /// <summary>
     /// Inicia la partida. Solo el propietario puede iniciar.

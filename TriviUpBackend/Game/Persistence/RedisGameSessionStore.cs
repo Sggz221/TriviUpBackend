@@ -49,6 +49,11 @@ public sealed class RedisGameSessionStore(
         await _db.StringSetAsync(SessionKey(session.RoomCode), json);
     }
 
+    public async Task RemoveAsync(string roomCode, CancellationToken cancellationToken = default)
+    {
+        await _db.KeyDeleteAsync(SessionKey(roomCode));
+    }
+
     public async Task MarkFinishedAsync(GameSessionDocument session, TimeSpan ttl, CancellationToken cancellationToken = default)
     {
         session.State = GameState.Finished;

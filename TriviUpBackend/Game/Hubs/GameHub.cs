@@ -193,7 +193,14 @@ public class GameHub : Hub
     {
         _logger.LogInformation("User {UserId} leaving game {RoomCode}", userId, roomCode);
 
-        await _gameService.LeaveGameAsync(roomCode, userId);
+        var roomClosed = await _gameService.LeaveGameAsync(roomCode, userId, isExplicitLeave: true);
+        if (roomClosed)
+        {
+            // GameService.CloseRoomAsync ya difundió RoomClosed y sacó a todos del grupo.
+            _logger.LogInformation("Room {RoomCode} was closed as a result of owner {UserId} leaving", roomCode, userId);
+            return;
+        }
+
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomCode);
 
         // Broadcast PlayerLeft to remaining players in the room

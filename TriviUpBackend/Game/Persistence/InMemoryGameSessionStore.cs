@@ -41,6 +41,12 @@ public sealed class InMemoryGameSessionStore : IGameSessionStore
         return Task.CompletedTask;
     }
 
+    public Task RemoveAsync(string roomCode, CancellationToken cancellationToken = default)
+    {
+        _sessions.TryRemove(roomCode, out _);
+        return Task.CompletedTask;
+    }
+
     public Task MarkFinishedAsync(GameSessionDocument session, TimeSpan ttl, CancellationToken cancellationToken = default)
     {
         session.State = Models.GameState.Finished;

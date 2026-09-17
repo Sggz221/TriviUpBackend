@@ -148,17 +148,23 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <inheritdoc />
-    public async Task LeaveGameAsync(string roomCode, long userId)
+    public async Task<bool> LeaveGameAsync(string roomCode, long userId, bool isExplicitLeave = false)
     {
         await using var roomLock = await AcquireRoomLockAsync(roomCode);
-        if (roomLock is null) return;
+        if (roomLock is null) return false;
 
         var session = await _store.GetAsync(roomCode);
-        if (session is null) return;
+        if (session is null) return false;
 
         var player = session.Players.FirstOrDefault(p => p.UserId == userId);
         if (player != null)
         {
+            if (isExplicitLeave && player.IsOwner && session.State == GameState.Waiting)
+            {
+                await CloseRoomAsync(session);
+                return true;
+            }
+
             player.IsConnected = false;
 
             if (player.IsOwner && session.State == GameState.Waiting)
@@ -182,6 +188,34 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         await _store.ClearUserRoomAsync(userId);
         await _store.SaveAsync(session);
         _logger.LogInformation("User {UserId} left room {RoomCode}", userId, roomCode);
+        return false;
+    }
+
+    /// <summary>
+    /// Cierra la sala por completo: limpia el mapeo de todos los jugadores, borra la sesión
+    /// del store, los saca del grupo de SignalR y difunde <c>RoomClosed</c>.
+    /// </summary>
+    private async Task CloseRoomAsync(GameSessionDocument session)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+
+        foreach (var p in session.Players)
+        {
+            if (!string.IsNullOrEmpty(p.ConnectionId))
+            {
+                await _store.ClearConnectionMappingAsync(p.ConnectionId);
+                await hubContext.Groups.RemoveFromGroupAsync(p.ConnectionId, session.RoomCode);
+            }
+
+            await _store.ClearUserRoomAsync(p.UserId);
+        }
+
+        await _store.RemoveAsync(session.RoomCode);
+
+        await hubContext.Clients.Group(session.RoomCode).SendAsync("RoomClosed", new RoomClosedDto(session.RoomCode, "OWNER_LEFT"));
+
+        _logger.LogInformation("Room {RoomCode} closed because owner left explicitly while waiting", session.RoomCode);
     }
 
     /// <inheritdoc />

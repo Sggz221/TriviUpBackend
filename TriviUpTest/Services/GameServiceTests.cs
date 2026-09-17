@@ -54,6 +54,12 @@ public class GameServiceTests
         mockHubClients.Setup(c => c.Group(It.IsAny<string>())).Returns(mockClientProxy.Object);
         _mockHubContext.Setup(h => h.Clients).Returns(mockHubClients.Object);
 
+        var mockGroupManager = new Mock<IGroupManager>();
+        mockGroupManager
+            .Setup(g => g.RemoveFromGroupAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _mockHubContext.Setup(h => h.Groups).Returns(mockGroupManager.Object);
+
         var mockQuizRepository = new Mock<IQuizRepository>();
         mockQuizRepository.Setup(r => r.FindByIdAsync(It.IsAny<long>()))
             .ReturnsAsync((long id) => new Quiz { Id = id, Nombre = "Test Quiz" });
@@ -186,6 +192,17 @@ public class GameServiceTests
         var session = await _store.GetAsync(roomCode);
         Assert.NotNull(session);
         Assert.Equal(200L, session.OwnerId);
+    }
+
+    [Fact]
+    public async Task LeaveGameAsync_OwnerExplicitLeaveDuringWaiting_ClosesRoom()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        var closed = await _service.LeaveGameAsync(roomCode, 100L, isExplicitLeave: true);
+
+        Assert.True(closed);
+        var session = await _store.GetAsync(roomCode);
+        Assert.Null(session);
     }
 
     [Fact]
