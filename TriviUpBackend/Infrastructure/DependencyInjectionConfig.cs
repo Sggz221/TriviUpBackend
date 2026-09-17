@@ -37,7 +37,7 @@ public static class DependencyInjectionConfig
         services.AddScoped<IProfilePhotoStorage, ProfilePhotoStorage>();
         services.AddScoped<IQuestionImageStorage, QuestionImageStorage>();
 
-        // Cache - usar memoria local en lugar de Redis
+        // Cache - memoria local (quizzes). El estado de partidas usa Redis vía IGameSessionStore.
         services.AddMemoryCache();
         services.AddScoped<ICacheService, MemoryCacheService>();
 

@@ -98,7 +98,7 @@ public class GameHub : Hub
         // TODO: Obtener username del usuario autenticado (del token o base de datos)
         var username = $"Player_{userId}";
 
-        var roomCode = await _gameService.CreateGameAsync(quizId, userId, username);
+        var roomCode = await _gameService.CreateGameAsync(quizId, userId, username, Context.ConnectionId);
 
         _logger.LogInformation("Game {RoomCode} created by user {UserId}", roomCode, userId);
 

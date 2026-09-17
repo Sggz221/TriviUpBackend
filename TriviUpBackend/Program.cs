@@ -1,8 +1,5 @@
 using TriviUpBackend.Infrastructure;
-using Microsoft.Extensions.FileProviders;
 using TriviUpBackend.Game.Hubs;
-using TriviUpBackend.Game.Services;
-using TriviUpBackend.Game.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,12 +29,8 @@ builder.Services.AddCustomValidation();
 // Storage
 builder.Services.AddStorage();
 
-// Game Services (SignalR)
-builder.Services.AddSignalR();
-builder.Services.AddSingleton<ITurnManager, TurnManager>();
-builder.Services.AddSingleton<IGameService, GameService>();
-builder.Services.AddSingleton<GameOptions>();
-
+// Game runtime: SignalR (+ Redis backplane), session store, deadline worker
+builder.Services.AddGameRuntime(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
 
@@ -64,6 +57,9 @@ app.SeedDatabase();
 
 // Mapeo de Controladores
 app.MapControllers();
+
+// Health checks (Railway / load balancers)
+app.MapHealthChecks("/health");
 
 // Game Hub (SignalR)
 app.MapHub<GameHub>("/hubs/game");
