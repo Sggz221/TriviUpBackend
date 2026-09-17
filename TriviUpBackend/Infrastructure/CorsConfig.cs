@@ -6,6 +6,14 @@
 /// </summary>
 public static class CorsConfig
 {
+    /// <summary>
+    /// Nombre único de la política CORS, usado tanto al registrarla como al aplicarla
+    /// (antes había un mismatch: se registraba "AllowAll"/"ProductionPolicy" según el
+    /// entorno, pero siempre se aplicaba "AllowAll" -> en producción no se encontraba
+    /// la política y CORS quedaba silenciosamente desactivado).
+    /// </summary>
+    public const string PolicyName = "AppCors";
+
     public static IServiceCollection AddCorsPolicy(this IServiceCollection services, IConfiguration configuration, bool isDevelopment)
     {
 
@@ -14,7 +22,7 @@ public static class CorsConfig
             if (isDevelopment)
             {
                 // SignalR requiere credenciales, así que no podemos usar AllowAnyOrigin
-                options.AddPolicy("AllowAll", policy =>
+                options.AddPolicy(PolicyName, policy =>
                 {
                     policy.WithOrigins("http://localhost:4200", "http://localhost:5164")
                         .AllowAnyMethod()
@@ -35,7 +43,7 @@ public static class CorsConfig
                 if (allowedOrigins.Length == 0)
                     throw new InvalidOperationException("Cors:AllowedOrigins no puede estar vacío");
 
-                options.AddPolicy("ProductionPolicy", policy =>
+                options.AddPolicy(PolicyName, policy =>
                 {
                     policy.WithOrigins(allowedOrigins)
                         .AllowAnyMethod()

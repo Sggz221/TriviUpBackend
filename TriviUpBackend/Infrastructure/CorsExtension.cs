@@ -10,10 +10,6 @@ public static class CorsExtension
     /// </summary>
     public static IApplicationBuilder UseCorsPolicy(this IApplicationBuilder app)
     {
-        var env = ((WebApplication)app).Environment;
-
-        var policyName = "AllowAll"; // Cambiar luego según queramos
-
-        return app.UseCors(policyName);
+        return app.UseCors(CorsConfig.PolicyName);
     }
 }

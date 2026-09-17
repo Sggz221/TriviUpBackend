@@ -168,9 +168,12 @@ public class AuthController(
 
     private string BuildGoogleCallbackUri(string? returnUrl)
     {
-        var frontendUrl = Environment.GetEnvironmentVariable("FRONTEND_URL")
-            ?? throw new InvalidOperationException("FRONTEND_URL no configurada");
-        return $"{frontendUrl}/auth/google/callback";
+        // Este redirect_uri es al que Google llama de vuelta, así que debe ser el
+        // dominio propio del backend (ya no hay proxy de nginx delante). El registro
+        // en Google Cloud Console debe coincidir exactamente con esta URL.
+        var backendUrl = Environment.GetEnvironmentVariable("BACKEND_URL")
+            ?? throw new InvalidOperationException("BACKEND_URL no configurada");
+        return $"{backendUrl}/auth/google/callback";
     }
 
     private async Task<GoogleTokenResponse> ExchangeCodeForTokensAsync(string code, string clientId, string clientSecret, string redirectUri)
