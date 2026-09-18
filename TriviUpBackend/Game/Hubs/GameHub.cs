@@ -187,6 +187,23 @@ public class GameHub : Hub
         _logger.LogInformation("Sent PlayersList with {Count} players to user {UserId} in room {RoomCode}",
             playersList.Count, userId, roomCode);
 
+        // Si la partida ya está en curso (reconexión tras refresh/caída), reenviar el estado
+        // actual solo a quien se conecta: sin esto se queda en el lobby sin pregunta ni turno.
+        var rejoin = await _gameService.GetRejoinStateAsync(roomCode);
+        if (rejoin is not null)
+        {
+            await Clients.Caller.SendAsync("GameStarted", rejoin.GameState);
+            if (rejoin.Turn is not null)
+            {
+                await Clients.Caller.SendAsync("TurnStarted", rejoin.Turn);
+            }
+            if (rejoin.Paused)
+            {
+                await Clients.Caller.SendAsync("GamePaused", new GamePausedDto(roomCode, DateTime.UtcNow));
+            }
+            _logger.LogInformation("Sent game state to reconnecting user {UserId} in room {RoomCode}", userId, roomCode);
+        }
+
         // Broadcast PlayerJoined event to all clients in the room (including the new player)
         await Clients.Group(roomCode).SendAsync("PlayerJoined", playerDto);
         _logger.LogInformation("Broadcasted PlayerJoined event for user {UserId} ({Username}) in room {RoomCode}",

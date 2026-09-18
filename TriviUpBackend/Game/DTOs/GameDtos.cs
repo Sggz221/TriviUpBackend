@@ -85,6 +85,15 @@ public record PlayerResultDto(
 );
 
 /// <summary>
+/// Estado de una partida en curso que se reenvía a quien se reconecta a la sala.
+/// </summary>
+public record RejoinStateDto(
+    GameStateDto GameState,
+    TurnStartedDto? Turn,
+    bool Paused
+);
+
+/// <summary>
 /// Datos del turno iniciado para un jugador.
 /// </summary>
 public record TurnStartedDto(

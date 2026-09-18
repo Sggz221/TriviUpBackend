@@ -79,6 +79,13 @@ public interface IGameService
     Task<Result> ResumeGameAsync(string roomCode, long userId);
 
     /// <summary>
+    /// Devuelve el estado actual (pregunta, turno, pausa) de una partida en curso para quien
+    /// se reconecta a la sala, o null si la partida no está en curso.
+    /// </summary>
+    /// <param name="roomCode">Código de la sala.</param>
+    Task<RejoinStateDto?> GetRejoinStateAsync(string roomCode);
+
+    /// <summary>
     /// Expulsa a un jugador de la sala. Solo el propietario puede expulsar.
     /// </summary>
     /// <param name="roomCode">Código de la sala.</param>

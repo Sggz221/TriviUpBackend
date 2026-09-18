@@ -580,6 +580,54 @@ public class GameServiceTests
         }
     }
 
+    // ========== GetRejoinStateAsync Tests ==========
+
+    [Fact]
+    public async Task GetRejoinStateAsync_WaitingRoom_ReturnsNull()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        Assert.Null(await _service.GetRejoinStateAsync(roomCode));
+    }
+
+    [Fact]
+    public async Task GetRejoinStateAsync_PlayingRoom_ReturnsCurrentTurnAndQuestion()
+    {
+        var roomCode = await CreatePlayingTestRoom();
+
+        var rejoin = await _service.GetRejoinStateAsync(roomCode);
+
+        Assert.NotNull(rejoin);
+        Assert.False(rejoin!.Paused);
+        Assert.NotNull(rejoin.Turn);
+        Assert.Equal(200L, rejoin.Turn!.CurrentPlayerId);
+        Assert.NotEmpty(rejoin.Turn.Question.Options);
+        Assert.InRange(rejoin.Turn.TimeLimit, 1, 20);
+    }
+
+    [Fact]
+    public async Task GetRejoinStateAsync_PausedRoom_ReportsPaused()
+    {
+        var roomCode = await CreatePausedTestRoom();
+
+        var rejoin = await _service.GetRejoinStateAsync(roomCode);
+
+        Assert.NotNull(rejoin);
+        Assert.True(rejoin!.Paused);
+    }
+
+    [Fact]
+    public async Task GetRejoinStateAsync_RoomWithoutTimeLimit_ReturnsZeroTimeLimit()
+    {
+        var roomCode = await _service.CreateGameAsync(1L, 100L, "owner", "conn-owner", turnTimeLimitSeconds: 0);
+        await _service.JoinGameAsync(roomCode, 200L, "player2", "conn-200");
+        Assert.NotNull(await _service.StartGameAsync(roomCode, 100L));
+
+        var rejoin = await _service.GetRejoinStateAsync(roomCode);
+
+        Assert.NotNull(rejoin?.Turn);
+        Assert.Equal(0, rejoin!.Turn!.TimeLimit);
+    }
+
     // ========== Helpers ==========
 
     private async Task<string> CreateTestRoom()

@@ -742,6 +742,58 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
     }
 
+    /// <inheritdoc />
+    public async Task<RejoinStateDto?> GetRejoinStateAsync(string roomCode)
+    {
+        var session = await _store.GetAsync(roomCode);
+        if (session is null || (session.State != GameState.Playing && session.State != GameState.Paused))
+        {
+            return null;
+        }
+
+        var players = session.Players.Select(p => new PlayerDto(
+            p.UserId, p.Username, p.Score, p.CorrectAnswers, p.WrongAnswers, false, p.IsOwner, p.IsConnected)).ToList();
+
+        var gameState = new GameStateDto(
+            session.RoomCode,
+            session.State.ToString(),
+            players,
+            session.CurrentQuestionIndex,
+            session.Questions.Count);
+
+        TurnStartedDto? turn = null;
+        var currentPlayerId = session.GetCurrentPlayerId();
+        if (currentPlayerId is not null && session.CurrentQuestionIndex < session.Questions.Count)
+        {
+            var question = session.Questions[session.CurrentQuestionIndex];
+
+            // Segundos que le quedan al turno (0 = sala sin tiempo)
+            var limit = GetTurnLimitSeconds(session);
+            var remaining = 0;
+            if (limit > 0)
+            {
+                if (session.State == GameState.Paused)
+                {
+                    remaining = session.PausedTimeRemaining ?? limit;
+                }
+                else if (session.TurnDeadlineUnixMs.HasValue)
+                {
+                    var ms = session.TurnDeadlineUnixMs.Value - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    remaining = (int)Math.Ceiling(ms / 1000.0) - 1;
+                }
+                remaining = Math.Clamp(remaining, 1, limit);
+            }
+
+            turn = new TurnStartedDto(
+                currentPlayerId.Value,
+                false,
+                new QuestionDto(question.Id, question.Enunciado, question.Respuestas.Select(r => r.Texto).ToList(), question.ImagenUrl),
+                remaining);
+        }
+
+        return new RejoinStateDto(gameState, turn, session.State == GameState.Paused);
+    }
+
     /// <summary>Valida el tiempo por turno: null = por defecto, 0 = sin tiempo, resto entre 5 y 120 s.</summary>
     private static int? NormalizeTurnTimeLimit(int? seconds)
     {
