@@ -197,6 +197,18 @@ public class AuthService(
     }
 
     
+    /// <inheritdoc cref="IAuthService.RefreshAsync"/>
+    public async Task<Result<AuthResponseDto, AuthError>> RefreshAsync(long userId)
+    {
+        var user = await userRepository.FindByIdAsync(userId);
+        if (user is null)
+        {
+            return Result.Failure<AuthResponseDto, AuthError>(new AuthUnauthorizedError("Usuario no encontrado"));
+        }
+
+        return Result.Success<AuthResponseDto, AuthError>(GenerateAuthResponse(user));
+    }
+
     /// <summary>
     /// Genera la respuesta de autenticación con token JWT y datos del usuario.
     /// </summary>

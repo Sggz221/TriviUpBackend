@@ -18,7 +18,7 @@ public interface IGameService
     /// <param name="username">Nombre de usuario del propietario.</param>
     /// <param name="connectionId">ID de conexión SignalR del propietario.</param>
     /// <returns>Código de la sala creada.</returns>
-    Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId);
+    Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId, int? turnTimeLimitSeconds = null);
 
     /// <summary>
     /// Une a un jugador a una sala existente.

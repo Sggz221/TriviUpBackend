@@ -25,6 +25,9 @@ public sealed class GameSessionDocument
     public long? TurnDeadlineUnixMs { get; set; }
     public long Revision { get; set; }
 
+    /// <summary>Segundos por turno elegidos al crear la sala. null = valor por defecto; 0 = sin tiempo.</summary>
+    public int? TurnTimeLimitSeconds { get; set; }
+
     public long? GetCurrentPlayerId() => TurnQueue.Count > 0 ? TurnQueue[0] : null;
 
     public long? RotateTurn()

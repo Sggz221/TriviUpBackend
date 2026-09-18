@@ -34,13 +34,17 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <inheritdoc />
-    public async Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId)
+    public async Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId, int? turnTimeLimitSeconds = null)
     {
         _logger.LogInformation("Creating game room for quiz {QuizId} by owner {OwnerId} ({Username})", quizId, ownerId, username);
 
         using var scope = _scopeFactory.CreateScope();
         var quizRepository = scope.ServiceProvider.GetRequiredService<IQuizRepository>();
         var quiz = await quizRepository.FindByIdAsync(quizId);
+        if (quiz is { EsBorrador: true })
+        {
+            throw new InvalidOperationException("No se puede jugar un borrador.");
+        }
         var quizTitle = quiz?.Nombre ?? "Quiz Desconocido";
 
         for (var attempt = 0; attempt < 20; attempt++)
@@ -52,6 +56,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 QuizId = quizId,
                 QuizTitle = quizTitle,
                 OwnerId = ownerId,
+                TurnTimeLimitSeconds = NormalizeTurnTimeLimit(turnTimeLimitSeconds),
                 State = GameState.Waiting,
                 Players =
                 [
@@ -363,10 +368,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         session.CurrentQuestionIndex = 0;
         session.TurnStartedAt = DateTime.UtcNow;
         session.TurnGeneration++;
-        session.TurnDeadlineUnixMs = DateTimeOffset.UtcNow.AddSeconds(_options.QuestionTimeLimit).ToUnixTimeMilliseconds();
 
-        await _store.SaveAsync(session);
-        await _store.ScheduleDeadlineAsync(roomCode, session.TurnDeadlineUnixMs.Value, session.TurnGeneration);
+        await StartTurnDeadlineAsync(session);
 
         _logger.LogInformation("Game started in room {RoomCode} with {QuestionCount} questions", roomCode, questions.Count);
 
@@ -407,7 +410,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         var pointsEarned = 0;
         if (isCorrect)
         {
-            pointsEarned = _options.BasePoints + (timeRemaining * _options.TimeBonusMultiplier);
+            var turnLimit = GetTurnLimitSeconds(session);
+            var bonusSeconds = turnLimit > 0 ? Math.Clamp(timeRemaining, 0, turnLimit) : 0;
+            pointsEarned = _options.BasePoints + (bonusSeconds * _options.TimeBonusMultiplier);
             pointsEarned = Math.Min(pointsEarned, _options.BasePoints + _options.MaxTimeBonus);
             player.Score += pointsEarned;
             player.CorrectAnswers++;
@@ -511,10 +516,10 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             var remainingMs = session.TurnDeadlineUnixMs.Value - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             session.PausedTimeRemaining = Math.Max(0, (int)Math.Ceiling(remainingMs / 1000.0));
         }
-        else if (session.TurnStartedAt.HasValue)
+        else if (session.TurnStartedAt.HasValue && GetTurnLimitSeconds(session) > 0)
         {
             var elapsed = (DateTime.UtcNow - session.TurnStartedAt.Value).TotalSeconds;
-            session.PausedTimeRemaining = Math.Max(0, _options.QuestionTimeLimit - (int)elapsed);
+            session.PausedTimeRemaining = Math.Max(0, GetTurnLimitSeconds(session) + 1 - (int)elapsed);
         }
 
         session.State = GameState.Paused;
@@ -553,15 +558,24 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return Result.Failure("Game can only be resumed when paused.");
         }
 
-        var timeToResume = session.PausedTimeRemaining ?? _options.QuestionTimeLimit;
+        var hasLimit = GetTurnLimitSeconds(session) > 0;
+        var timeToResume = hasLimit ? (session.PausedTimeRemaining ?? GetTurnLimitSeconds(session) + 1) : 0;
         session.PausedTimeRemaining = null;
         session.State = GameState.Playing;
         session.TurnStartedAt = DateTime.UtcNow;
         session.TurnGeneration++;
-        session.TurnDeadlineUnixMs = DateTimeOffset.UtcNow.AddSeconds(timeToResume).ToUnixTimeMilliseconds();
 
-        await _store.SaveAsync(session);
-        await _store.ScheduleDeadlineAsync(roomCode, session.TurnDeadlineUnixMs.Value, session.TurnGeneration);
+        if (hasLimit)
+        {
+            session.TurnDeadlineUnixMs = DateTimeOffset.UtcNow.AddSeconds(timeToResume).ToUnixTimeMilliseconds();
+            await _store.SaveAsync(session);
+            await _store.ScheduleDeadlineAsync(roomCode, session.TurnDeadlineUnixMs.Value, session.TurnGeneration);
+        }
+        else
+        {
+            session.TurnDeadlineUnixMs = null;
+            await _store.SaveAsync(session);
+        }
         await BroadcastGameResumedAsync(roomCode, timeToResume);
 
         _logger.LogInformation("Game resumed in room {RoomCode} by owner {UserId}. Resuming with {TimeRemaining}s",
@@ -662,10 +676,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         session.TurnStartedAt = DateTime.UtcNow;
         session.TurnGeneration++;
-        session.TurnDeadlineUnixMs = DateTimeOffset.UtcNow.AddSeconds(_options.QuestionTimeLimit).ToUnixTimeMilliseconds();
 
-        await _store.SaveAsync(session);
-        await _store.ScheduleDeadlineAsync(session.RoomCode, session.TurnDeadlineUnixMs.Value, session.TurnGeneration);
+        await StartTurnDeadlineAsync(session);
         await BroadcastTurnStartedAsync(session);
     }
 
@@ -730,6 +742,35 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
     }
 
+    /// <summary>Valida el tiempo por turno: null = por defecto, 0 = sin tiempo, resto entre 5 y 120 s.</summary>
+    private static int? NormalizeTurnTimeLimit(int? seconds)
+    {
+        if (seconds is null) return null;
+        if (seconds <= 0) return 0;
+        return Math.Clamp(seconds.Value, 5, 120);
+    }
+
+    /// <summary>Segundos visibles por turno (0 = sin límite).</summary>
+    private int GetTurnLimitSeconds(GameSessionDocument session) =>
+        session.TurnTimeLimitSeconds ?? Math.Max(0, _options.QuestionTimeLimit - 1);
+
+    /// <summary>Programa el deadline del turno actual si la sala tiene tiempo limitado.</summary>
+    private async Task StartTurnDeadlineAsync(GameSessionDocument session)
+    {
+        var limit = GetTurnLimitSeconds(session);
+        if (limit <= 0)
+        {
+            session.TurnDeadlineUnixMs = null;
+            await _store.SaveAsync(session);
+            return;
+        }
+
+        // +1 s de gracia visual
+        session.TurnDeadlineUnixMs = DateTimeOffset.UtcNow.AddSeconds(limit + 1).ToUnixTimeMilliseconds();
+        await _store.SaveAsync(session);
+        await _store.ScheduleDeadlineAsync(session.RoomCode, session.TurnDeadlineUnixMs.Value, session.TurnGeneration);
+    }
+
     private async Task BroadcastTurnStartedAsync(GameSessionDocument session)
     {
         var currentPlayerId = session.GetCurrentPlayerId();
@@ -748,7 +789,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             currentPlayerId.Value,
             false,
             questionDto,
-            _options.QuestionTimeLimit - 1
+            GetTurnLimitSeconds(session)
         );
 
         using var scope = _scopeFactory.CreateScope();

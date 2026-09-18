@@ -16,10 +16,19 @@ public record UpdateQuizRequest
     public string Nombre { get; init; } = string.Empty;
 
     /// <summary>
+    /// Indica si el quiz es público (null = sin cambios).
+    /// </summary>
+    public bool? EsPublico { get; init; }
+
+    /// <summary>
+    /// Indica si el quiz sigue siendo un borrador (validación relajada).
+    /// </summary>
+    public bool EsBorrador { get; init; } = false;
+
+    /// <summary>
     /// Lista de preguntas del quiz (se reemplazan las existentes).
     /// </summary>
     [Required(ErrorMessage = "Las preguntas son obligatorias")]
-    [MinLength(1, ErrorMessage = "Debe haber al menos una pregunta")]
     public List<UpdatePreguntaRequest> Preguntas { get; init; } = new();
 }
 
@@ -43,8 +52,7 @@ public record UpdatePreguntaRequest
     /// <summary>
     /// Texto del enunciado de la pregunta.
     /// </summary>
-    [Required(ErrorMessage = "El enunciado es obligatorio")]
-    [MinLength(1, ErrorMessage = "El enunciado no puede estar vacío")]
+    [Required(AllowEmptyStrings = true, ErrorMessage = "El enunciado es obligatorio")]
     [MaxLength(1000, ErrorMessage = "El enunciado no puede exceder 1000 caracteres")]
     public string Enunciado { get; init; } = string.Empty;
 
@@ -58,7 +66,6 @@ public record UpdatePreguntaRequest
     /// Lista de respuestas de la pregunta.
     /// </summary>
     [Required(ErrorMessage = "Las respuestas son obligatorias")]
-    [MinLength(2, ErrorMessage = "Debe haber al menos 2 respuestas")]
     public List<UpdateRespuestaRequest> Respuestas { get; init; } = new();
 }
 
@@ -75,8 +82,7 @@ public record UpdateRespuestaRequest
     /// <summary>
     /// Texto de la respuesta.
     /// </summary>
-    [Required(ErrorMessage = "El texto es obligatorio")]
-    [MinLength(1, ErrorMessage = "El texto no puede estar vacío")]
+    [Required(AllowEmptyStrings = true, ErrorMessage = "El texto es obligatorio")]
     [MaxLength(500, ErrorMessage = "El texto no puede exceder 500 caracteres")]
     public string Texto { get; init; } = string.Empty;
 

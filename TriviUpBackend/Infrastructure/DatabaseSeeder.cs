@@ -1,4 +1,5 @@
-﻿using TriviUpBackend.Database;
+using Microsoft.EntityFrameworkCore;
+using TriviUpBackend.Database;
 
 namespace TriviUpBackend.Infrastructure;
 
@@ -19,6 +20,12 @@ public static class DatabaseSeeder
             logger.LogInformation("Estamos inicializando la Base de Datos...");
             // Ejecutamos EnsureCreated para crear la base de datos y cargar nuestros datos iniciales
             context.Database.EnsureCreated();
+            if (context.Database.IsNpgsql())
+            {
+                // EnsureCreated no migra tablas existentes: añadimos la columna de borrador si falta.
+                context.Database.ExecuteSqlRaw(
+                    "ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS \"EsBorrador\" boolean NOT NULL DEFAULT FALSE");
+            }
             logger.LogInformation("Hemos terminado de preparar la Base de Datos.");
         }
     }

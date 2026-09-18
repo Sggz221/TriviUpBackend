@@ -92,7 +92,9 @@ public class CuestionariosController(
         var result = await quizService.GetByIdAsync(id);
 
         return result.Match(
-            response => Ok(response),
+            response => response.EsBorrador && response.CreatorId != GetCurrentUserId()
+                ? NotFound(new { message = "Quiz no encontrado" })
+                : Ok(response),
             error => HandleError(error)
         );
     }

@@ -1,4 +1,4 @@
-﻿using CSharpFunctionalExtensions;
+using CSharpFunctionalExtensions;
 using Google.Apis.Auth;
 using Google.Apis.Util;
 using Microsoft.AspNetCore.Mvc;
@@ -74,6 +74,31 @@ public class AuthController(
                 _ => StatusCode(500, new { message = error.Error })
             }
         );
+    }
+
+    /// <summary>
+    /// Renueva el token JWT de un usuario con sesión válida (mientras usa la app no caduca).
+    /// </summary>
+    [HttpPost("refresh")]
+    [Microsoft.AspNetCore.Authorization.Authorize]
+    [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Refresh()
+    {
+        var claim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)
+                    ?? User.FindFirst("sub");
+        if (claim is null || !long.TryParse(claim.Value, out var userId))
+        {
+            return Unauthorized(new { message = "Usuario no autenticado" });
+        }
+
+        var resultado = await authService.RefreshAsync(userId);
+        if (resultado.IsFailure)
+        {
+            return Unauthorized(new { message = resultado.Error.Error });
+        }
+
+        return Ok(resultado.Value);
     }
 
     /// <summary>

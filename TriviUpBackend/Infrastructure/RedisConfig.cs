@@ -87,7 +87,7 @@ public static class RedisConfig
             services.AddSingleton<IConnectionMultiplexer>(_ =>
                 ConnectionMultiplexer.Connect(redisConnectionString!));
 
-            services.AddSignalR()
+            services.AddSignalR(ConfigureHub)
                 .AddStackExchangeRedis(redisConnectionString!, options =>
                 {
                     options.Configuration.ChannelPrefix = RedisChannel.Literal("TriviUp");
@@ -99,7 +99,7 @@ public static class RedisConfig
         }
         else
         {
-            services.AddSignalR();
+            services.AddSignalR(ConfigureHub);
             services.AddSingleton<IGameSessionStore, InMemoryGameSessionStore>();
             services.AddHealthChecks();
         }
@@ -109,5 +109,12 @@ public static class RedisConfig
         services.AddHostedService<TurnDeadlineWorker>();
 
         return services;
+    }
+
+    private static void ConfigureHub(Microsoft.AspNetCore.SignalR.HubOptions options)
+    {
+        options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+        options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
+        options.HandshakeTimeout = TimeSpan.FromSeconds(30);
     }
 }

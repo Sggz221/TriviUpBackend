@@ -21,10 +21,14 @@ public record CreateQuizRequest
     public bool EsPublico { get; init; } = false;
 
     /// <summary>
+    /// Indica si se guarda como borrador (validación relajada).
+    /// </summary>
+    public bool EsBorrador { get; init; } = false;
+
+    /// <summary>
     /// Lista de preguntas del quiz.
     /// </summary>
     [Required(ErrorMessage = "Las preguntas son obligatorias")]
-    [MinLength(1, ErrorMessage = "Debe haber al menos una pregunta")]
     public List<CreatePreguntaRequest> Preguntas { get; init; } = new();
 }
 
@@ -43,8 +47,7 @@ public record CreatePreguntaRequest
     /// <summary>
     /// Texto del enunciado de la pregunta.
     /// </summary>
-    [Required(ErrorMessage = "El enunciado es obligatorio")]
-    [MinLength(1, ErrorMessage = "El enunciado no puede estar vacío")]
+    [Required(AllowEmptyStrings = true, ErrorMessage = "El enunciado es obligatorio")]
     [MaxLength(1000, ErrorMessage = "El enunciado no puede exceder 1000 caracteres")]
     public string Enunciado { get; init; } = string.Empty;
 
@@ -58,7 +61,6 @@ public record CreatePreguntaRequest
     /// Lista de respuestas de la pregunta.
     /// </summary>
     [Required(ErrorMessage = "Las respuestas son obligatorias")]
-    [MinLength(2, ErrorMessage = "Debe haber al menos 2 respuestas")]
     public List<CreateRespuestaRequest> Respuestas { get; init; } = new();
 }
 
@@ -70,8 +72,7 @@ public record CreateRespuestaRequest
     /// <summary>
     /// Texto de la respuesta.
     /// </summary>
-    [Required(ErrorMessage = "El texto es obligatorio")]
-    [MinLength(1, ErrorMessage = "El texto no puede estar vacío")]
+    [Required(AllowEmptyStrings = true, ErrorMessage = "El texto es obligatorio")]
     [MaxLength(500, ErrorMessage = "El texto no puede exceder 500 caracteres")]
     public string Texto { get; init; } = string.Empty;
 

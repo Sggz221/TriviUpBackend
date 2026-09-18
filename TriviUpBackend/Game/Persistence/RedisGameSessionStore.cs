@@ -21,6 +21,13 @@ public sealed class RedisGameSessionStore(
 
     private readonly IDatabase _db = multiplexer.GetDatabase();
 
+    /// <summary>TTL deslizante de salas activas: se renueva en cada guardado.</summary>
+    private static readonly TimeSpan ActiveRoomTtl = TimeSpan.FromHours(6);
+    private static readonly TimeSpan FinishedRoomTtl = TimeSpan.FromHours(24);
+
+    private static TimeSpan TtlFor(GameSessionDocument session) =>
+        session.State == GameState.Finished ? FinishedRoomTtl : ActiveRoomTtl;
+
     private static string SessionKey(string roomCode) => $"{KeyPrefix}room:{roomCode}";
     private static string LockKey(string roomCode) => $"{KeyPrefix}lock:room:{roomCode}";
     private static string ConnKey(string connectionId) => $"{KeyPrefix}conn:{connectionId}";
@@ -39,14 +46,14 @@ public sealed class RedisGameSessionStore(
     {
         session.Revision = 1;
         var json = JsonSerializer.Serialize(session, GameSessionMapper.JsonOptions);
-        return await _db.StringSetAsync(SessionKey(session.RoomCode), json, when: When.NotExists);
+        return await _db.StringSetAsync(SessionKey(session.RoomCode), json, ActiveRoomTtl, When.NotExists);
     }
 
     public async Task SaveAsync(GameSessionDocument session, CancellationToken cancellationToken = default)
     {
         session.Revision++;
         var json = JsonSerializer.Serialize(session, GameSessionMapper.JsonOptions);
-        await _db.StringSetAsync(SessionKey(session.RoomCode), json);
+        await _db.StringSetAsync(SessionKey(session.RoomCode), json, TtlFor(session));
     }
 
     public async Task RemoveAsync(string roomCode, CancellationToken cancellationToken = default)

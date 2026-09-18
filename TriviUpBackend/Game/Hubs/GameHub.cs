@@ -98,14 +98,14 @@ public class GameHub : Hub
     /// <summary>
     /// Crea una nueva sala de juego. Requiere usuario autenticado.
     /// </summary>
-    public async Task<string> CreateGame(long quizId)
+    public async Task<string> CreateGame(long quizId, int? turnTimeLimitSeconds = null)
     {
         var userId = GetAuthenticatedUserId();
         _logger.LogInformation("User {UserId} creating game for quiz {QuizId}", userId, quizId);
 
         var username = GetAuthenticatedUsername(userId);
 
-        var roomCode = await _gameService.CreateGameAsync(quizId, userId, username, Context.ConnectionId);
+        var roomCode = await _gameService.CreateGameAsync(quizId, userId, username, Context.ConnectionId, turnTimeLimitSeconds);
 
         _logger.LogInformation("Game {RoomCode} created by user {UserId}", roomCode, userId);
 

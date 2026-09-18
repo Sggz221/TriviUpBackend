@@ -78,6 +78,7 @@ public class QuizRepository(
     {
         return await context.Quizzes
             .Include(q => q.Preguntas)
+                .ThenInclude(p => p.Respuestas)
             .Where(q => q.CreatorId == creatorId)
             .OrderByDescending(q => q.CreatedAt)
             .ToListAsync();
@@ -92,7 +93,7 @@ public class QuizRepository(
         var query = context.Quizzes
             .Include(q => q.Creator)
             .Include(q => q.Preguntas)
-            .Where(q => q.EsPublico);
+            .Where(q => q.EsPublico && !q.EsBorrador);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -113,7 +114,7 @@ public class QuizRepository(
     /// <inheritdoc cref="IQuizRepository.GetPublicQuizzesCountAsync"/>
     public async Task<int> GetPublicQuizzesCountAsync(string? search)
     {
-        var query = context.Quizzes.Where(q => q.EsPublico);
+        var query = context.Quizzes.Where(q => q.EsPublico && !q.EsBorrador);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -133,7 +134,7 @@ public class QuizRepository(
         return await context.Quizzes
             .Include(q => q.Creator)
             .Include(q => q.Preguntas)
-            .FirstOrDefaultAsync(q => q.Id == id && q.EsPublico);
+            .FirstOrDefaultAsync(q => q.Id == id && q.EsPublico && !q.EsBorrador);
     }
 
     /// <summary>

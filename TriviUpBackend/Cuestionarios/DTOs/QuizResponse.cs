@@ -17,6 +17,12 @@ public record QuizResponse
     [property: JsonPropertyName("gameCode")]
     public string GameCode { get; init; } = string.Empty;
 
+    [property: JsonPropertyName("esPublico")]
+    public bool EsPublico { get; init; }
+
+    [property: JsonPropertyName("esBorrador")]
+    public bool EsBorrador { get; init; }
+
     [property: JsonPropertyName("preguntas")]
     public List<PreguntaResponse> Preguntas { get; init; } = new();
 
@@ -37,7 +43,9 @@ public record QuizResponse
         Id = quiz.Id,
         Nombre = quiz.Nombre,
         GameCode = quiz.GameCode,
-        Preguntas = quiz.Preguntas.Select(PreguntaResponse.FromEntity).ToList(),
+        EsPublico = quiz.EsPublico,
+        EsBorrador = quiz.EsBorrador,
+        Preguntas = quiz.Preguntas.OrderBy(p => p.NumeroPregunta).Select(PreguntaResponse.FromEntity).ToList(),
         CreatorId = quiz.CreatorId,
         FechaCreacion = quiz.CreatedAt,
         FechaActualizacion = quiz.UpdatedAt

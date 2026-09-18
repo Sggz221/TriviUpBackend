@@ -25,7 +25,9 @@ public class QuizService(
     {
         logger.LogInformation("Creando quiz: {Nombre} por usuario {CreatorId}", request.Nombre, creatorId);
 
-        var validationResult = ValidateCreateRequest(request);
+        var validationResult = request.EsBorrador
+            ? UnitResult.Success<QuizError>()
+            : ValidateCreateRequest(request);
         if (validationResult.IsFailure)
         {
             return Result.Failure<QuizResponse, QuizError>(validationResult.Error);
@@ -38,7 +40,8 @@ public class QuizService(
             Nombre = request.Nombre,
             GameCode = gameCode,
             CreatorId = creatorId,
-            EsPublico = request.EsPublico,
+            EsPublico = request.EsPublico && !request.EsBorrador,
+            EsBorrador = request.EsBorrador,
             Preguntas = request.Preguntas.Select(p => new Pregunta
             {
                 CreatorId = creatorId,
@@ -108,7 +111,7 @@ public class QuizService(
         logger.LogInformation("Obteniendo quiz por GameCode: {GameCode}", gameCode);
 
         var quiz = await quizRepository.FindByGameCodeAsync(gameCode);
-        if (quiz == null)
+        if (quiz == null || quiz.EsBorrador)
         {
             logger.LogWarning("Quiz no encontrado con GameCode: {GameCode}", gameCode);
             return Result.Failure<QuizResponse, QuizError>(new QuizNotFoundError($"Quiz con GameCode {gameCode} no encontrado"));
@@ -185,13 +188,24 @@ public class QuizService(
             return Result.Failure<QuizResponse, QuizError>(new QuizForbiddenError("No tienes permiso para modificar este quiz"));
         }
 
-        var validationResult = ValidateUpdateRequest(request);
+        var validationResult = request.EsBorrador
+            ? UnitResult.Success<QuizError>()
+            : ValidateUpdateRequest(request);
         if (validationResult.IsFailure)
         {
             return Result.Failure<QuizResponse, QuizError>(validationResult.Error);
         }
 
         quiz.Nombre = request.Nombre;
+        quiz.EsBorrador = request.EsBorrador;
+        if (request.EsBorrador)
+        {
+            quiz.EsPublico = false;
+        }
+        else if (request.EsPublico.HasValue)
+        {
+            quiz.EsPublico = request.EsPublico.Value;
+        }
 
         // Quitar preguntas y respuestas antiguas
         quiz.Preguntas.Clear();
@@ -350,10 +364,17 @@ public class QuizService(
         {
             var pregunta = request.Preguntas[i];
 
-            if (pregunta.Respuestas == null || pregunta.Respuestas.Count < 2)
+            if (string.IsNullOrWhiteSpace(pregunta.Enunciado))
             {
                 return UnitResult.Failure<QuizError>(
-                    new QuizValidationError($"La pregunta {i + 1} debe tener al menos 2 respuestas"));
+                    new QuizValidationError($"La pregunta {i + 1} no puede estar vacía"));
+            }
+
+            if (pregunta.Respuestas == null || pregunta.Respuestas.Count < 2 ||
+                pregunta.Respuestas.Any(r => string.IsNullOrWhiteSpace(r.Texto)))
+            {
+                return UnitResult.Failure<QuizError>(
+                    new QuizValidationError($"La pregunta {i + 1} debe tener al menos 2 respuestas con texto"));
             }
 
             var correctCount = pregunta.Respuestas.Count(r => r.EsCorrecta);
@@ -378,10 +399,17 @@ public class QuizService(
         {
             var pregunta = request.Preguntas[i];
 
-            if (pregunta.Respuestas == null || pregunta.Respuestas.Count < 2)
+            if (string.IsNullOrWhiteSpace(pregunta.Enunciado))
             {
                 return UnitResult.Failure<QuizError>(
-                    new QuizValidationError($"La pregunta {i + 1} debe tener al menos 2 respuestas"));
+                    new QuizValidationError($"La pregunta {i + 1} no puede estar vacía"));
+            }
+
+            if (pregunta.Respuestas == null || pregunta.Respuestas.Count < 2 ||
+                pregunta.Respuestas.Any(r => string.IsNullOrWhiteSpace(r.Texto)))
+            {
+                return UnitResult.Failure<QuizError>(
+                    new QuizValidationError($"La pregunta {i + 1} debe tener al menos 2 respuestas con texto"));
             }
 
             var correctCount = pregunta.Respuestas.Count(r => r.EsCorrecta);

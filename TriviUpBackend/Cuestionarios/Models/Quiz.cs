@@ -32,6 +32,9 @@ public class Quiz : ITimestamped
 
     public bool EsPublico { get; set; } = false;
 
+    /// <summary>Indica que el quiz es un borrador (no jugable ni público).</summary>
+    public bool EsBorrador { get; set; } = false;
+
     public int Visitas { get; set; } = 0;
 
     public int Likes { get; set; } = 0;

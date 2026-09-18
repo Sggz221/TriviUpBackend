@@ -1,4 +1,4 @@
-﻿using CSharpFunctionalExtensions;
+using CSharpFunctionalExtensions;
 using TriviUpBackend.DTO.User;
 using TriviUpBackend.Errors;
 
@@ -32,4 +32,10 @@ public interface IAuthService
     /// <param name="username">Nombre de usuario preferido.</param>
     /// <returns>Resultado con la respuesta de autenticación o error.</returns>
     Task<Result<AuthResponseDto, AuthError>> GoogleSignInAsync(string googleId, string email, string username);
+
+    /// <summary>
+    /// Emite un token nuevo para un usuario ya autenticado (renovación de sesión).
+    /// </summary>
+    /// <param name="userId">Identificador del usuario autenticado.</param>
+    Task<Result<AuthResponseDto, AuthError>> RefreshAsync(long userId);
 }
