@@ -182,6 +182,91 @@ public class CuestionariosController(
     }
 
     /// <summary>
+    /// Guarda un borrador del cuestionario. Si ya está publicado, la versión publicada no cambia.
+    /// </summary>
+    [HttpPut("{id:long}/borrador")]
+    [ProducesResponseType(typeof(QuizResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> SaveDraft(long id, [FromBody] UpdateQuizRequest request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { message = "Usuario no autenticado" });
+
+        var result = await quizService.SaveDraftAsync(id, request, userId.Value);
+        return result.IsSuccess ? Ok(result.Value) : HandleError(result.Error);
+    }
+
+    /// <summary>
+    /// Obtiene el borrador pendiente del cuestionario (solo el creador).
+    /// </summary>
+    [HttpGet("{id:long}/borrador")]
+    [ProducesResponseType(typeof(QuizResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetDraft(long id)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { message = "Usuario no autenticado" });
+
+        var result = await quizService.GetDraftAsync(id, userId.Value);
+        return result.IsSuccess ? Ok(result.Value) : HandleError(result.Error);
+    }
+
+    /// <summary>
+    /// Publica el borrador pendiente como nueva versión del cuestionario.
+    /// </summary>
+    [HttpPost("{id:long}/publicar")]
+    [ProducesResponseType(typeof(QuizResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> Publish(long id)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { message = "Usuario no autenticado" });
+
+        var result = await quizService.PublishAsync(id, userId.Value);
+        return result.IsSuccess ? Ok(result.Value) : HandleError(result.Error);
+    }
+
+    /// <summary>
+    /// Descarta el borrador pendiente de un cuestionario publicado.
+    /// </summary>
+    [HttpDelete("{id:long}/borrador")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> DiscardDraft(long id)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { message = "Usuario no autenticado" });
+
+        var result = await quizService.DiscardDraftAsync(id, userId.Value);
+        return result.IsSuccess ? NoContent() : HandleError(result.Error);
+    }
+
+    /// <summary>
+    /// Historial de versiones del cuestionario.
+    /// </summary>
+    [HttpGet("{id:long}/versiones")]
+    [ProducesResponseType(typeof(List<QuizVersionResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetVersions(long id)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { message = "Usuario no autenticado" });
+
+        var result = await quizService.GetVersionsAsync(id, userId.Value);
+        return result.IsSuccess ? Ok(result.Value) : HandleError(result.Error);
+    }
+
+    /// <summary>
+    /// Copia una versión anterior al borrador.
+    /// </summary>
+    [HttpPost("{id:long}/versiones/{numero:int}/restaurar")]
+    [ProducesResponseType(typeof(QuizResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> RestoreVersion(long id, int numero)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { message = "Usuario no autenticado" });
+
+        var result = await quizService.RestoreVersionAsync(id, numero, userId.Value);
+        return result.IsSuccess ? Ok(result.Value) : HandleError(result.Error);
+    }
+
+    /// <summary>
     /// Elimina un cuestionario.
     /// Solo el creador del cuestionario puede eliminarlo.
     /// </summary>

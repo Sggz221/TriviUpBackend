@@ -218,6 +218,7 @@ public class QuizServiceTests
             CreateSampleQuiz(2, "My Quiz 2", creatorId: creatorId)
         };
         _mockRepo.Setup(r => r.FindByCreatorIdAsync(creatorId)).ReturnsAsync(quizzes);
+        _mockRepo.Setup(r => r.FindQuizIdsWithDraftAsync(creatorId)).ReturnsAsync(new HashSet<long>());
 
         // Act
         var result = await _service.GetByCreatorIdAsync(creatorId);
@@ -764,6 +765,108 @@ public class QuizServiceTests
     }
 
     // ========== Helper Methods ==========
+
+    // ========== Versiones / borradores ==========
+
+    private static UpdateQuizRequest ValidUpdate(bool borrador) => new()
+    {
+        Nombre = "Editado",
+        EsBorrador = borrador,
+        Preguntas =
+        [
+            new UpdatePreguntaRequest
+            {
+                NumeroPregunta = 1,
+                Enunciado = "Nueva pregunta",
+                Respuestas =
+                [
+                    new UpdateRespuestaRequest { Texto = "A", EsCorrecta = true },
+                    new UpdateRespuestaRequest { Texto = "B", EsCorrecta = false }
+                ]
+            }
+        ]
+    };
+
+    [Fact]
+    public async Task UpdateAsync_DraftOfPublishedQuiz_SavesDraftRowAndKeepsPublishedContent()
+    {
+        var quiz = CreateSampleQuiz(1, "Publicado");
+        quiz.VersionPublicada = 2;
+        _mockRepo.Setup(r => r.FindByIdWithQuestionsAsync(1)).ReturnsAsync(quiz);
+        _mockRepo.Setup(r => r.FindDraftAsync(1)).ReturnsAsync((QuizVersion?)null);
+        _mockRepo.Setup(r => r.SaveDraftAsync(It.IsAny<QuizVersion>())).ReturnsAsync((QuizVersion v) => v);
+
+        var result = await _service.UpdateAsync(1, ValidUpdate(borrador: true), userId: 1L);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.TieneBorrador);
+        Assert.Equal("Publicado", quiz.Nombre);
+        Assert.Equal(2, quiz.VersionPublicada);
+        _mockRepo.Verify(r => r.SaveDraftAsync(It.Is<QuizVersion>(v => v.Estado == QuizVersionEstado.Borrador && v.Nombre == "Editado")), Times.Once);
+        _mockRepo.Verify(r => r.UpdateAsync(It.IsAny<Quiz>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_PublishOfPublishedQuiz_ArchivesPreviousVersionAndIncrementsNumber()
+    {
+        var quiz = CreateSampleQuiz(1, "Publicado");
+        quiz.VersionPublicada = 2;
+        var draft = new QuizVersion { Id = 9, QuizId = 1, Estado = QuizVersionEstado.Borrador };
+        _mockRepo.Setup(r => r.FindByIdWithQuestionsAsync(1)).ReturnsAsync(quiz);
+        _mockRepo.Setup(r => r.FindDraftAsync(1)).ReturnsAsync(draft);
+
+        var result = await _service.UpdateAsync(1, ValidUpdate(borrador: false), userId: 1L);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3, quiz.VersionPublicada);
+        Assert.Equal("Editado", quiz.Nombre);
+        _mockRepo.Verify(r => r.PublishVersionAsync(
+            quiz,
+            It.Is<QuizVersion>(a => a.Numero == 2 && a.Estado == QuizVersionEstado.Archivada && a.Nombre == "Publicado"),
+            draft), Times.Once);
+    }
+
+    [Fact]
+    public async Task PublishAsync_PublishedQuizWithoutDraft_ReturnsNotFound()
+    {
+        var quiz = CreateSampleQuiz(1, "Publicado");
+        quiz.VersionPublicada = 1;
+        _mockRepo.Setup(r => r.FindByIdWithQuestionsAsync(1)).ReturnsAsync(quiz);
+        _mockRepo.Setup(r => r.FindDraftAsync(1)).ReturnsAsync((QuizVersion?)null);
+
+        var result = await _service.PublishAsync(1, userId: 1L);
+
+        Assert.True(result.IsFailure);
+        Assert.IsType<QuizNotFoundError>(result.Error);
+    }
+
+    [Fact]
+    public async Task RestoreVersionAsync_NeverPublishedQuiz_ReturnsValidationError()
+    {
+        var quiz = CreateSampleQuiz(1, "Borrador");
+        quiz.VersionPublicada = 0;
+        _mockRepo.Setup(r => r.FindByIdWithQuestionsAsync(1)).ReturnsAsync(quiz);
+
+        var result = await _service.RestoreVersionAsync(1, 1, userId: 1L);
+
+        Assert.True(result.IsFailure);
+        Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task DiscardDraftAsync_ExistingDraft_DeletesIt()
+    {
+        var quiz = CreateSampleQuiz(1, "Publicado");
+        quiz.VersionPublicada = 1;
+        var draft = new QuizVersion { Id = 5, QuizId = 1, Estado = QuizVersionEstado.Borrador };
+        _mockRepo.Setup(r => r.FindByIdAsync(1)).ReturnsAsync(quiz);
+        _mockRepo.Setup(r => r.FindDraftAsync(1)).ReturnsAsync(draft);
+
+        var result = await _service.DiscardDraftAsync(1, userId: 1L);
+
+        Assert.True(result.IsSuccess);
+        _mockRepo.Verify(r => r.DeleteDraftAsync(draft), Times.Once);
+    }
 
     private static Quiz CreateSampleQuiz(long id, string nombre, string gameCode = "TEST12", long creatorId = 1L)
     {

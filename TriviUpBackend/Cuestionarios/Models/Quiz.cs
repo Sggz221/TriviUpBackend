@@ -35,6 +35,11 @@ public class Quiz : ITimestamped
     /// <summary>Indica que el quiz es un borrador (no jugable ni público).</summary>
     public bool EsBorrador { get; set; } = false;
 
+    /// <summary>Número de la versión publicada actual (0 = nunca publicado).</summary>
+    public int VersionPublicada { get; set; } = 0;
+
+    public List<QuizVersion> Versiones { get; set; } = new();
+
     public int Visitas { get; set; } = 0;
 
     public int Likes { get; set; } = 0;

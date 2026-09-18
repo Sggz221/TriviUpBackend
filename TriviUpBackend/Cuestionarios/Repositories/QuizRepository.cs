@@ -254,4 +254,71 @@ public class QuizRepository(
             .OrderBy(p => p.NumeroPregunta)
             .ToListAsync();
     }
+
+    /// <inheritdoc cref="IQuizRepository.FindDraftAsync"/>
+    public async Task<QuizVersion?> FindDraftAsync(long quizId)
+    {
+        return await context.QuizVersions
+            .FirstOrDefaultAsync(v => v.QuizId == quizId && v.Estado == QuizVersionEstado.Borrador);
+    }
+
+    /// <inheritdoc cref="IQuizRepository.SaveDraftAsync"/>
+    public async Task<QuizVersion> SaveDraftAsync(QuizVersion draft)
+    {
+        if (draft.Id == 0)
+        {
+            context.QuizVersions.Add(draft);
+        }
+        await context.SaveChangesAsync();
+        return draft;
+    }
+
+    /// <inheritdoc cref="IQuizRepository.DeleteDraftAsync"/>
+    public async Task DeleteDraftAsync(QuizVersion draft)
+    {
+        context.QuizVersions.Remove(draft);
+        await context.SaveChangesAsync();
+    }
+
+    /// <inheritdoc cref="IQuizRepository.FindArchivedAsync(long)"/>
+    public async Task<List<QuizVersion>> FindArchivedAsync(long quizId)
+    {
+        return await context.QuizVersions
+            .Where(v => v.QuizId == quizId && v.Estado == QuizVersionEstado.Archivada)
+            .OrderByDescending(v => v.Numero)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc cref="IQuizRepository.FindArchivedAsync(long, int)"/>
+    public async Task<QuizVersion?> FindArchivedAsync(long quizId, int numero)
+    {
+        return await context.QuizVersions
+            .FirstOrDefaultAsync(v => v.QuizId == quizId && v.Estado == QuizVersionEstado.Archivada && v.Numero == numero);
+    }
+
+    /// <inheritdoc cref="IQuizRepository.FindQuizIdsWithDraftAsync"/>
+    public async Task<HashSet<long>> FindQuizIdsWithDraftAsync(long creatorId)
+    {
+        var ids = await context.QuizVersions
+            .Where(v => v.Estado == QuizVersionEstado.Borrador && v.Quiz!.CreatorId == creatorId)
+            .Select(v => v.QuizId)
+            .ToListAsync();
+        return ids.ToHashSet();
+    }
+
+    /// <inheritdoc cref="IQuizRepository.PublishVersionAsync"/>
+    public async Task PublishVersionAsync(Quiz quiz, QuizVersion? archived, QuizVersion? draftToDelete)
+    {
+        context.Quizzes.Update(quiz);
+        if (archived is not null)
+        {
+            context.QuizVersions.Add(archived);
+        }
+        if (draftToDelete is not null)
+        {
+            context.QuizVersions.Remove(draftToDelete);
+        }
+        await context.SaveChangesAsync();
+        logger.LogInformation("Quiz {Id} publicado como versión {Version}", quiz.Id, quiz.VersionPublicada);
+    }
 }

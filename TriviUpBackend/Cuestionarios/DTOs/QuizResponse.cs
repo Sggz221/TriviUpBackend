@@ -23,6 +23,12 @@ public record QuizResponse
     [property: JsonPropertyName("esBorrador")]
     public bool EsBorrador { get; init; }
 
+    [property: JsonPropertyName("version")]
+    public int Version { get; init; }
+
+    [property: JsonPropertyName("tieneBorrador")]
+    public bool TieneBorrador { get; init; }
+
     [property: JsonPropertyName("preguntas")]
     public List<PreguntaResponse> Preguntas { get; init; } = new();
 
@@ -36,6 +42,34 @@ public record QuizResponse
     public DateTime FechaActualizacion { get; init; }
 
     /// <summary>
+    /// Crea un QuizResponse a partir del contenido de un borrador de un quiz publicado.
+    /// </summary>
+    public static QuizResponse FromDraft(Quiz quiz, UpdateQuizRequest contenido, DateTime fecha) => new()
+    {
+        Id = quiz.Id,
+        Nombre = contenido.Nombre,
+        GameCode = quiz.GameCode,
+        EsPublico = contenido.EsPublico ?? quiz.EsPublico,
+        EsBorrador = true,
+        Version = quiz.VersionPublicada,
+        TieneBorrador = true,
+        Preguntas = contenido.Preguntas
+            .OrderBy(p => p.NumeroPregunta)
+            .Select(p => new PreguntaResponse
+            {
+                NumeroPregunta = p.NumeroPregunta,
+                Enunciado = p.Enunciado,
+                ImagenUrl = p.ImagenUrl,
+                Respuestas = p.Respuestas
+                    .Select(r => new RespuestaResponse { Texto = r.Texto, EsCorrecta = r.EsCorrecta })
+                    .ToList()
+            }).ToList(),
+        CreatorId = quiz.CreatorId,
+        FechaCreacion = quiz.CreatedAt,
+        FechaActualizacion = fecha
+    };
+
+    /// <summary>
     /// Crea un QuizResponse desde una entidad Quiz.
     /// </summary>
     public static QuizResponse FromEntity(Quiz quiz) => new()
@@ -45,11 +79,32 @@ public record QuizResponse
         GameCode = quiz.GameCode,
         EsPublico = quiz.EsPublico,
         EsBorrador = quiz.EsBorrador,
+        Version = quiz.VersionPublicada,
         Preguntas = quiz.Preguntas.OrderBy(p => p.NumeroPregunta).Select(PreguntaResponse.FromEntity).ToList(),
         CreatorId = quiz.CreatorId,
         FechaCreacion = quiz.CreatedAt,
         FechaActualizacion = quiz.UpdatedAt
     };
+}
+
+/// <summary>
+/// Entrada del historial de versiones de un quiz.
+/// </summary>
+public record QuizVersionResponse
+{
+    /// <summary>Número de versión; null en el borrador.</summary>
+    [property: JsonPropertyName("numero")]
+    public int? Numero { get; init; }
+
+    /// <summary>"Publicada", "Borrador" o "Archivada".</summary>
+    [property: JsonPropertyName("estado")]
+    public string Estado { get; init; } = string.Empty;
+
+    [property: JsonPropertyName("nombre")]
+    public string Nombre { get; init; } = string.Empty;
+
+    [property: JsonPropertyName("fecha")]
+    public DateTime Fecha { get; init; }
 }
 
 /// <summary>

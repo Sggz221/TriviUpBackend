@@ -17,6 +17,7 @@ public class Context(DbContextOptions options) : DbContext(options)
     public DbSet<Pregunta> Preguntas { get; set; } = null!;
     public DbSet<Respuesta> Respuestas { get; set; } = null!;
     public DbSet<GameHistory> GameHistories { get; set; } = null!;
+    public DbSet<QuizVersion> QuizVersions { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,6 +40,23 @@ public class Context(DbContextOptions options) : DbContext(options)
             entity.Property(q => q.EsPublico).HasDefaultValue(false);
             entity.Property(q => q.Visitas).HasDefaultValue(0);
             entity.Property(q => q.Likes).HasDefaultValue(0);
+        });
+
+        modelBuilder.Entity<QuizVersion>(entity =>
+        {
+            entity.Property(v => v.Estado).HasConversion<string>().HasMaxLength(20);
+            entity.Property(v => v.Contenido).HasColumnType("jsonb");
+            entity.Property(v => v.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
+            entity.HasOne(v => v.Quiz)
+                .WithMany(q => q.Versiones)
+                .HasForeignKey(v => v.QuizId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(v => new { v.QuizId, v.Numero }).IsUnique();
+            // Un solo borrador pendiente por quiz
+            entity.HasIndex(v => v.QuizId)
+                .IsUnique()
+                .HasFilter("\"Estado\" = 'Borrador'")
+                .HasDatabaseName("IX_quiz_versions_QuizId_Borrador");
         });
 
         modelBuilder.Entity<Pregunta>(entity =>
@@ -69,6 +87,9 @@ public class Context(DbContextOptions options) : DbContext(options)
         SeedData(modelBuilder);
     }
 
+    // Valores fijos: el seed debe ser determinista para que el snapshot de migraciones no cambie entre compilaciones.
+    private static readonly DateTime SeedDate = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
     private static void SeedData(ModelBuilder modelBuilder)
     {
         var adminUser = new User
@@ -76,11 +97,11 @@ public class Context(DbContextOptions options) : DbContext(options)
             Id = 1,
             Username = "admin",
             Email = "admin@funkoapi.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123", workFactor: 12),
+            PasswordHash = "$2a$12$FMQKFvn9GqrqkuY8Gwm8J.eo2xq9ZHxiGeoUObpf/c3DL8/5lo2PW",
             Role = UserRoles.ADMIN,
             IsDeleted = false,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
+            CreatedAt = SeedDate,
+            UpdatedAt = SeedDate
         };
 
         var normalUser = new User
@@ -88,11 +109,11 @@ public class Context(DbContextOptions options) : DbContext(options)
             Id = 2,
             Username = "user",
             Email = "user@funkoapi.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("user123", workFactor: 12),
+            PasswordHash = "$2a$12$YgFVgrCGk6TyiQiKYBujmOvf.Sx94.9AAZ0X4T7COcDAdtR0HZkGm",
             Role = UserRoles.USER,
             IsDeleted = false,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
+            CreatedAt = SeedDate,
+            UpdatedAt = SeedDate
         };
 
         var testUser = new User
@@ -100,11 +121,11 @@ public class Context(DbContextOptions options) : DbContext(options)
             Id = 3,
             Username = "testuser",
             Email = "test@test.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("test123", workFactor: 12),
+            PasswordHash = "$2a$12$.q7bnzBb9.r4cpqLyO3tBOlO54ozRPxjp0hv06OWD64A.OomLAYuK",
             Role = UserRoles.USER,
             IsDeleted = false,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
+            CreatedAt = SeedDate,
+            UpdatedAt = SeedDate
         };
 
         modelBuilder.Entity<User>().HasData(adminUser, normalUser, testUser);
@@ -119,9 +140,10 @@ public class Context(DbContextOptions options) : DbContext(options)
                 CreatorId = 1,
                 EsPublico = true,
                 Visitas = 150,
+                VersionPublicada = 1,
                 Likes = 42,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedDate,
+                UpdatedAt = SeedDate
             },
             new Quiz
             {
@@ -131,9 +153,10 @@ public class Context(DbContextOptions options) : DbContext(options)
                 CreatorId = 2,
                 EsPublico = true,
                 Visitas = 89,
+                VersionPublicada = 1,
                 Likes = 23,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedDate,
+                UpdatedAt = SeedDate
             },
             new Quiz
             {
@@ -143,9 +166,10 @@ public class Context(DbContextOptions options) : DbContext(options)
                 CreatorId = 1,
                 EsPublico = true,
                 Visitas = 234,
+                VersionPublicada = 1,
                 Likes = 67,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedDate,
+                UpdatedAt = SeedDate
             },
             new Quiz
             {
@@ -155,9 +179,10 @@ public class Context(DbContextOptions options) : DbContext(options)
                 CreatorId = 3,
                 EsPublico = true,
                 Visitas = 178,
+                VersionPublicada = 1,
                 Likes = 51,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedDate,
+                UpdatedAt = SeedDate
             },
             new Quiz
             {
@@ -167,9 +192,10 @@ public class Context(DbContextOptions options) : DbContext(options)
                 CreatorId = 2,
                 EsPublico = true,
                 Visitas = 312,
+                VersionPublicada = 1,
                 Likes = 95,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedDate,
+                UpdatedAt = SeedDate
             },
             new Quiz
             {
@@ -179,9 +205,10 @@ public class Context(DbContextOptions options) : DbContext(options)
                 CreatorId = 1,
                 EsPublico = false,
                 Visitas = 0,
+                VersionPublicada = 1,
                 Likes = 0,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedDate,
+                UpdatedAt = SeedDate
             }
         };
 

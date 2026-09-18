@@ -93,4 +93,34 @@ public interface IQuizService
     /// <param name="id">ID del quiz.</param>
     /// <returns>Nuevo conteo de visitas o error.</returns>
     Task<Result<int, QuizError>> IncrementVisitasAsync(long id);
+
+    /// <summary>
+    /// Guarda un borrador. Si el quiz ya está publicado, la versión publicada no se modifica.
+    /// </summary>
+    Task<Result<QuizResponse, QuizError>> SaveDraftAsync(long id, UpdateQuizRequest request, long userId);
+
+    /// <summary>
+    /// Obtiene el borrador pendiente (solo el creador).
+    /// </summary>
+    Task<Result<QuizResponse, QuizError>> GetDraftAsync(long id, long userId);
+
+    /// <summary>
+    /// Publica el borrador pendiente como nueva versión.
+    /// </summary>
+    Task<Result<QuizResponse, QuizError>> PublishAsync(long id, long userId);
+
+    /// <summary>
+    /// Descarta el borrador pendiente de un quiz publicado.
+    /// </summary>
+    Task<UnitResult<QuizError>> DiscardDraftAsync(long id, long userId);
+
+    /// <summary>
+    /// Historial de versiones (publicada actual, borrador y archivadas).
+    /// </summary>
+    Task<Result<List<QuizVersionResponse>, QuizError>> GetVersionsAsync(long id, long userId);
+
+    /// <summary>
+    /// Copia una versión anterior al borrador para poder publicarla de nuevo.
+    /// </summary>
+    Task<Result<QuizResponse, QuizError>> RestoreVersionAsync(long id, int numero, long userId);
 }

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CSharpFunctionalExtensions;
 using TriviUpBackend.Cuestionarios.DTOs;
 using TriviUpBackend.Cuestionarios.Entities;
@@ -18,6 +19,7 @@ public class QuizService(
 ) : IQuizService
 {
     private static readonly Random _random = new();
+    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan DefaultCacheDuration = TimeSpan.FromMinutes(5);
 
     /// <inheritdoc cref="IQuizService.CreateAsync"/>
@@ -40,8 +42,9 @@ public class QuizService(
             Nombre = request.Nombre,
             GameCode = gameCode,
             CreatorId = creatorId,
-            EsPublico = request.EsPublico && !request.EsBorrador,
+            EsPublico = request.EsPublico,
             EsBorrador = request.EsBorrador,
+            VersionPublicada = request.EsBorrador ? 0 : 1,
             Preguntas = request.Preguntas.Select(p => new Pregunta
             {
                 CreatorId = creatorId,
@@ -166,7 +169,10 @@ public class QuizService(
         logger.LogInformation("Obteniendo quizzes del usuario: {CreatorId}", creatorId);
 
         var quizzes = await quizRepository.FindByCreatorIdAsync(creatorId);
-        var quizResponses = quizzes.Select(QuizResponse.FromEntity).ToList();
+        var conBorrador = await quizRepository.FindQuizIdsWithDraftAsync(creatorId);
+        var quizResponses = quizzes
+            .Select(q => QuizResponse.FromEntity(q) with { TieneBorrador = conBorrador.Contains(q.Id) })
+            .ToList();
 
         return Result.Success<List<QuizResponse>, QuizError>(quizResponses);
     }
@@ -174,7 +180,7 @@ public class QuizService(
     /// <inheritdoc cref="IQuizService.UpdateAsync"/>
     public async Task<Result<QuizResponse, QuizError>> UpdateAsync(long id, UpdateQuizRequest request, long userId)
     {
-        logger.LogInformation("Actualizando quiz {Id} por usuario {UserId}", id, userId);
+        logger.LogInformation("Actualizando quiz {Id} por usuario {UserId} (borrador: {Borrador})", id, userId, request.EsBorrador);
 
         var quiz = await quizRepository.FindByIdWithQuestionsAsync(id);
         if (quiz == null)
@@ -188,24 +194,270 @@ public class QuizService(
             return Result.Failure<QuizResponse, QuizError>(new QuizForbiddenError("No tienes permiso para modificar este quiz"));
         }
 
-        var validationResult = request.EsBorrador
-            ? UnitResult.Success<QuizError>()
-            : ValidateUpdateRequest(request);
+        var yaPublicado = quiz.VersionPublicada > 0;
+
+        if (request.EsBorrador)
+        {
+            // Quiz ya publicado: el borrador va aparte y lo publicado no se toca
+            if (yaPublicado)
+            {
+                return await SaveDraftRowAsync(quiz, request);
+            }
+
+            // Nunca publicado: el borrador vive en las tablas vivas
+            ApplyContent(quiz, request);
+            quiz.EsBorrador = true;
+            if (request.EsPublico.HasValue)
+            {
+                quiz.EsPublico = request.EsPublico.Value;
+            }
+            await quizRepository.UpdateAsync(quiz);
+            await cacheService.RemoveAsync($"quiz:{id}");
+            return await ReloadAsync(id);
+        }
+
+        var validationResult = ValidateUpdateRequest(request);
         if (validationResult.IsFailure)
         {
             return Result.Failure<QuizResponse, QuizError>(validationResult.Error);
         }
 
+        if (yaPublicado)
+        {
+            // Nueva versión: se archiva la actual y se descarta el borrador pendiente
+            var archived = new QuizVersion
+            {
+                QuizId = quiz.Id,
+                Numero = quiz.VersionPublicada,
+                Estado = QuizVersionEstado.Archivada,
+                Nombre = quiz.Nombre,
+                EsPublico = quiz.EsPublico,
+                Contenido = JsonSerializer.Serialize(ToRequest(quiz), JsonOpts),
+                PublishedAt = quiz.UpdatedAt
+            };
+            var draft = await quizRepository.FindDraftAsync(quiz.Id);
+
+            ApplyContent(quiz, request);
+            if (request.EsPublico.HasValue)
+            {
+                quiz.EsPublico = request.EsPublico.Value;
+            }
+            quiz.VersionPublicada++;
+
+            await quizRepository.PublishVersionAsync(quiz, archived, draft);
+        }
+        else
+        {
+            ApplyContent(quiz, request);
+            if (request.EsPublico.HasValue)
+            {
+                quiz.EsPublico = request.EsPublico.Value;
+            }
+            quiz.EsBorrador = false;
+            quiz.VersionPublicada = 1;
+            await quizRepository.UpdateAsync(quiz);
+        }
+
+        // Invalidate individual quiz cache
+        await cacheService.RemoveAsync($"quiz:{id}");
+
+        logger.LogInformation("Quiz {Id} publicado (versión {Version})", id, quiz.VersionPublicada);
+
+        return await ReloadAsync(id);
+    }
+
+    /// <inheritdoc cref="IQuizService.SaveDraftAsync"/>
+    public Task<Result<QuizResponse, QuizError>> SaveDraftAsync(long id, UpdateQuizRequest request, long userId)
+        => UpdateAsync(id, request with { EsBorrador = true }, userId);
+
+    /// <inheritdoc cref="IQuizService.GetDraftAsync"/>
+    public async Task<Result<QuizResponse, QuizError>> GetDraftAsync(long id, long userId)
+    {
+        var quiz = await quizRepository.FindByIdWithQuestionsAsync(id);
+        var check = CheckOwner(quiz, id, userId);
+        if (check is not null) return Result.Failure<QuizResponse, QuizError>(check);
+
+        // Nunca publicado: el propio quiz es el borrador
+        if (quiz!.VersionPublicada == 0)
+        {
+            return Result.Success<QuizResponse, QuizError>(QuizResponse.FromEntity(quiz));
+        }
+
+        var draft = await quizRepository.FindDraftAsync(id);
+        if (draft is null)
+        {
+            return Result.Failure<QuizResponse, QuizError>(new QuizNotFoundError("Este quiz no tiene borrador pendiente"));
+        }
+
+        var contenido = JsonSerializer.Deserialize<UpdateQuizRequest>(draft.Contenido, JsonOpts)
+                        ?? new UpdateQuizRequest { Nombre = draft.Nombre };
+        return Result.Success<QuizResponse, QuizError>(QuizResponse.FromDraft(quiz, contenido, draft.CreatedAt));
+    }
+
+    /// <inheritdoc cref="IQuizService.PublishAsync"/>
+    public async Task<Result<QuizResponse, QuizError>> PublishAsync(long id, long userId)
+    {
+        var quiz = await quizRepository.FindByIdWithQuestionsAsync(id);
+        var check = CheckOwner(quiz, id, userId);
+        if (check is not null) return Result.Failure<QuizResponse, QuizError>(check);
+
+        UpdateQuizRequest contenido;
+        if (quiz!.VersionPublicada == 0)
+        {
+            contenido = ToRequest(quiz);
+        }
+        else
+        {
+            var draft = await quizRepository.FindDraftAsync(id);
+            if (draft is null)
+            {
+                return Result.Failure<QuizResponse, QuizError>(new QuizNotFoundError("No hay borrador pendiente que publicar"));
+            }
+            contenido = JsonSerializer.Deserialize<UpdateQuizRequest>(draft.Contenido, JsonOpts)
+                        ?? new UpdateQuizRequest { Nombre = draft.Nombre };
+        }
+
+        return await UpdateAsync(id, contenido with { EsBorrador = false }, userId);
+    }
+
+    /// <inheritdoc cref="IQuizService.DiscardDraftAsync"/>
+    public async Task<UnitResult<QuizError>> DiscardDraftAsync(long id, long userId)
+    {
+        var quiz = await quizRepository.FindByIdAsync(id);
+        var check = CheckOwner(quiz, id, userId);
+        if (check is not null) return UnitResult.Failure<QuizError>(check);
+
+        var draft = await quizRepository.FindDraftAsync(id);
+        if (draft is null)
+        {
+            return UnitResult.Failure<QuizError>(new QuizNotFoundError("Este quiz no tiene borrador pendiente"));
+        }
+
+        await quizRepository.DeleteDraftAsync(draft);
+        return UnitResult.Success<QuizError>();
+    }
+
+    /// <inheritdoc cref="IQuizService.GetVersionsAsync"/>
+    public async Task<Result<List<QuizVersionResponse>, QuizError>> GetVersionsAsync(long id, long userId)
+    {
+        var quiz = await quizRepository.FindByIdAsync(id);
+        var check = CheckOwner(quiz, id, userId);
+        if (check is not null) return Result.Failure<List<QuizVersionResponse>, QuizError>(check);
+
+        var versiones = new List<QuizVersionResponse>();
+
+        var draft = await quizRepository.FindDraftAsync(id);
+        if (quiz!.VersionPublicada == 0)
+        {
+            versiones.Add(new QuizVersionResponse { Estado = "Borrador", Nombre = quiz.Nombre, Fecha = quiz.UpdatedAt });
+        }
+        else
+        {
+            if (draft is not null)
+            {
+                versiones.Add(new QuizVersionResponse { Estado = "Borrador", Nombre = draft.Nombre, Fecha = draft.CreatedAt });
+            }
+            versiones.Add(new QuizVersionResponse
+            {
+                Numero = quiz.VersionPublicada,
+                Estado = "Publicada",
+                Nombre = quiz.Nombre,
+                Fecha = quiz.UpdatedAt
+            });
+        }
+
+        foreach (var v in await quizRepository.FindArchivedAsync(id))
+        {
+            versiones.Add(new QuizVersionResponse
+            {
+                Numero = v.Numero,
+                Estado = "Archivada",
+                Nombre = v.Nombre,
+                Fecha = v.PublishedAt ?? v.CreatedAt
+            });
+        }
+
+        return Result.Success<List<QuizVersionResponse>, QuizError>(versiones);
+    }
+
+    /// <inheritdoc cref="IQuizService.RestoreVersionAsync"/>
+    public async Task<Result<QuizResponse, QuizError>> RestoreVersionAsync(long id, int numero, long userId)
+    {
+        var quiz = await quizRepository.FindByIdWithQuestionsAsync(id);
+        var check = CheckOwner(quiz, id, userId);
+        if (check is not null) return Result.Failure<QuizResponse, QuizError>(check);
+
+        if (quiz!.VersionPublicada == 0)
+        {
+            return Result.Failure<QuizResponse, QuizError>(new QuizValidationError("El quiz aún no tiene versiones publicadas"));
+        }
+
+        UpdateQuizRequest contenido;
+        if (numero == quiz.VersionPublicada)
+        {
+            contenido = ToRequest(quiz);
+        }
+        else
+        {
+            var archivada = await quizRepository.FindArchivedAsync(id, numero);
+            if (archivada is null)
+            {
+                return Result.Failure<QuizResponse, QuizError>(new QuizNotFoundError($"Versión {numero} no encontrada"));
+            }
+            contenido = JsonSerializer.Deserialize<UpdateQuizRequest>(archivada.Contenido, JsonOpts)
+                        ?? new UpdateQuizRequest { Nombre = archivada.Nombre };
+        }
+
+        var guardado = await SaveDraftRowAsync(quiz, contenido with { EsBorrador = true });
+        if (guardado.IsFailure) return guardado;
+
+        var draft = await quizRepository.FindDraftAsync(id);
+        return Result.Success<QuizResponse, QuizError>(
+            QuizResponse.FromDraft(quiz, contenido, draft?.CreatedAt ?? DateTime.UtcNow));
+    }
+
+    // ---------- helpers de versiones ----------
+
+    private async Task<Result<QuizResponse, QuizError>> SaveDraftRowAsync(Quiz quiz, UpdateQuizRequest request)
+    {
+        var draft = await quizRepository.FindDraftAsync(quiz.Id) ?? new QuizVersion
+        {
+            QuizId = quiz.Id,
+            Estado = QuizVersionEstado.Borrador
+        };
+
+        draft.Nombre = request.Nombre;
+        draft.EsPublico = request.EsPublico ?? quiz.EsPublico;
+        draft.Contenido = JsonSerializer.Serialize(request with { EsBorrador = false }, JsonOpts);
+        draft.CreatedAt = DateTime.UtcNow;
+
+        await quizRepository.SaveDraftAsync(draft);
+
+        return Result.Success<QuizResponse, QuizError>(
+            QuizResponse.FromEntity(quiz) with { TieneBorrador = true });
+    }
+
+    private async Task<Result<QuizResponse, QuizError>> ReloadAsync(long id)
+    {
+        var updated = await quizRepository.FindByIdWithQuestionsAsync(id);
+        if (updated == null)
+        {
+            return Result.Failure<QuizResponse, QuizError>(new QuizNotFoundError($"Quiz con ID {id} no encontrado después de actualizar"));
+        }
+        return Result.Success<QuizResponse, QuizError>(QuizResponse.FromEntity(updated));
+    }
+
+    private static QuizError? CheckOwner(Quiz? quiz, long id, long userId)
+    {
+        if (quiz is null) return new QuizNotFoundError($"Quiz con ID {id} no encontrado");
+        if (quiz.CreatorId != userId) return new QuizForbiddenError("No tienes permiso para acceder a este quiz");
+        return null;
+    }
+
+    /// <summary>Sustituye el contenido vivo del quiz (nombre, preguntas y respuestas).</summary>
+    private static void ApplyContent(Quiz quiz, UpdateQuizRequest request)
+    {
         quiz.Nombre = request.Nombre;
-        quiz.EsBorrador = request.EsBorrador;
-        if (request.EsBorrador)
-        {
-            quiz.EsPublico = false;
-        }
-        else if (request.EsPublico.HasValue)
-        {
-            quiz.EsPublico = request.EsPublico.Value;
-        }
 
         // Quitar preguntas y respuestas antiguas
         quiz.Preguntas.Clear();
@@ -213,7 +465,7 @@ public class QuizService(
         // Añadir nuevas preguntas
         foreach (var preguntaRequest in request.Preguntas)
         {
-            var pregunta = new Pregunta
+            quiz.Preguntas.Add(new Pregunta
             {
                 QuizId = quiz.Id,
                 CreatorId = quiz.CreatorId,
@@ -225,25 +477,27 @@ public class QuizService(
                     Texto = r.Texto,
                     EsCorrecta = r.EsCorrecta
                 }).ToList()
-            };
-            quiz.Preguntas.Add(pregunta);
+            });
         }
-
-        await quizRepository.UpdateAsync(quiz);
-
-        var updatedQuiz = await quizRepository.FindByIdWithQuestionsAsync(id);
-        if (updatedQuiz == null)
-        {
-            return Result.Failure<QuizResponse, QuizError>(new QuizNotFoundError($"Quiz con ID {id} no encontrado después de actualizar"));
-        }
-
-        // Invalidate individual quiz cache
-        await cacheService.RemoveAsync($"quiz:{id}");
-
-        logger.LogInformation("Quiz {Id} actualizado exitosamente", id);
-
-        return Result.Success<QuizResponse, QuizError>(QuizResponse.FromEntity(updatedQuiz));
     }
+
+    /// <summary>Convierte el contenido vivo del quiz al formato de contenido versionado.</summary>
+    private static UpdateQuizRequest ToRequest(Quiz quiz) => new()
+    {
+        Nombre = quiz.Nombre,
+        EsPublico = quiz.EsPublico,
+        Preguntas = quiz.Preguntas
+            .OrderBy(p => p.NumeroPregunta)
+            .Select(p => new UpdatePreguntaRequest
+            {
+                NumeroPregunta = p.NumeroPregunta,
+                Enunciado = p.Enunciado,
+                ImagenUrl = p.ImagenUrl,
+                Respuestas = p.Respuestas
+                    .Select(r => new UpdateRespuestaRequest { Texto = r.Texto, EsCorrecta = r.EsCorrecta })
+                    .ToList()
+            }).ToList()
+    };
 
     /// <inheritdoc cref="IQuizService.DeleteAsync"/>
     public async Task<UnitResult<QuizError>> DeleteAsync(long id, long userId)

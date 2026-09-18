@@ -127,4 +127,28 @@ public interface IQuizRepository
     /// <param name="quizId">ID del quiz.</param>
     /// <returns>Lista de preguntas ordenadas por número.</returns>
     Task<List<Pregunta>> GetQuestionsWithAnswersAsync(long quizId);
+
+    /// <summary>Obtiene el borrador pendiente de un quiz publicado (null si no hay).</summary>
+    Task<QuizVersion?> FindDraftAsync(long quizId);
+
+    /// <summary>Crea o actualiza el borrador pendiente de un quiz publicado.</summary>
+    Task<QuizVersion> SaveDraftAsync(QuizVersion draft);
+
+    /// <summary>Elimina el borrador pendiente.</summary>
+    Task DeleteDraftAsync(QuizVersion draft);
+
+    /// <summary>Versiones archivadas de un quiz, de la más reciente a la más antigua.</summary>
+    Task<List<QuizVersion>> FindArchivedAsync(long quizId);
+
+    /// <summary>Busca una versión archivada por número.</summary>
+    Task<QuizVersion?> FindArchivedAsync(long quizId, int numero);
+
+    /// <summary>Ids de los quizzes del creador que tienen un borrador pendiente.</summary>
+    Task<HashSet<long>> FindQuizIdsWithDraftAsync(long creatorId);
+
+    /// <summary>
+    /// Publica atómicamente: guarda el quiz con su nuevo contenido, archiva la versión anterior
+    /// (si hay) y elimina el borrador pendiente (si hay), todo en un único guardado.
+    /// </summary>
+    Task PublishVersionAsync(Quiz quiz, QuizVersion? archived, QuizVersion? draftToDelete);
 }
