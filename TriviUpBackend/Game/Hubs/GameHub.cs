@@ -144,7 +144,7 @@ public class GameHub : Hub
     /// <summary>
     /// Une a un jugador anónimo a la sala. El userId se pasa como parámetro.
     /// </summary>
-    public async Task JoinGame(string roomCode, long userId, string username)
+    public async Task<long> JoinGame(string roomCode, long userId, string username)
     {
         _logger.LogInformation("User {UserId} ({Username}) joining game {RoomCode}", userId, username, roomCode);
 
@@ -160,6 +160,14 @@ public class GameHub : Hub
         _logger.LogInformation("User {UserId} ({Username}) joined game {RoomCode} and added to group", userId, username, roomCode);
 
         var room = result.Value;
+
+        // El servidor puede haber reconocido al jugador por su nombre y asignarle su id original.
+        var registered = room.Players.FirstOrDefault(p => p.ConnectionId == Context.ConnectionId);
+        if (registered is not null)
+        {
+            userId = registered.UserId;
+        }
+
         var playerDto = new PlayerDto(
             userId,
             username,
@@ -208,6 +216,8 @@ public class GameHub : Hub
         await Clients.Group(roomCode).SendAsync("PlayerJoined", playerDto);
         _logger.LogInformation("Broadcasted PlayerJoined event for user {UserId} ({Username}) in room {RoomCode}",
             userId, username, roomCode);
+
+        return userId;
     }
 
     /// <summary>

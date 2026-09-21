@@ -113,6 +113,20 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         // sala siga en espera y tenga hueco.
         var existingPlayer = session.Players.FirstOrDefault(p => p.UserId == userId);
 
+        // Jugador anónimo que perdió su id local (otro navegador, datos borrados, caducidad):
+        // con la partida en curso lo reconocemos por su nombre, siempre que ese jugador
+        // esté desconectado, y reutilizamos su id original.
+        if (existingPlayer is null && session.State != GameState.Waiting)
+        {
+            existingPlayer = session.Players.FirstOrDefault(p =>
+                !p.IsConnected && !p.IsOwner &&
+                string.Equals(p.Username, username, StringComparison.OrdinalIgnoreCase));
+            if (existingPlayer is not null)
+            {
+                userId = existingPlayer.UserId;
+            }
+        }
+
         if (existingPlayer is null)
         {
             if (session.State != GameState.Waiting)
