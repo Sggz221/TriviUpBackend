@@ -8,23 +8,39 @@ namespace TriviUpBackend.Cuestionarios.Repositories;
 public class BancoPreguntaRepository(Context context) : IBancoPreguntaRepository
 {
     public async Task<BancoPregunta?> FindByIdAsync(long id) =>
-        await context.BancoPreguntas.FirstOrDefaultAsync(p => p.Id == id);
+        await context.BancoPreguntas.Include(p => p.Categoria).FirstOrDefaultAsync(p => p.Id == id);
+
+    public async Task<List<BancoPregunta>> FindByIdsAsync(long creatorId, IReadOnlyCollection<long> ids) =>
+        await context.BancoPreguntas
+            .Include(p => p.Categoria)
+            .Where(p => p.CreatorId == creatorId && ids.Contains(p.Id))
+            .ToListAsync();
 
     public async Task<(List<BancoPregunta> Items, int Total)> FindByCreatorAsync(
-        long creatorId, string? search, string? etiqueta, int page, int pageSize)
+        long creatorId, string? search, long? categoriaId, bool sinCategoria, string? dificultad, int page, int pageSize)
     {
-        var query = context.BancoPreguntas.Where(p => p.CreatorId == creatorId);
+        var query = context.BancoPreguntas.Include(p => p.Categoria).Where(p => p.CreatorId == creatorId);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim().ToLower();
-            query = query.Where(p => p.Enunciado.ToLower().Contains(term) || p.EtiquetasTexto.Contains(term));
+            query = query.Where(p => p.Enunciado.ToLower().Contains(term) ||
+                                     (p.Categoria != null && p.Categoria.Nombre.ToLower().Contains(term)));
         }
 
-        if (!string.IsNullOrWhiteSpace(etiqueta))
+        if (sinCategoria)
         {
-            var token = BancoPregunta.TagToken(etiqueta.Trim().ToLower());
-            query = query.Where(p => p.EtiquetasTexto.Contains(token));
+            query = query.Where(p => p.CategoriaId == null);
+        }
+        else if (categoriaId.HasValue)
+        {
+            query = query.Where(p => p.CategoriaId == categoriaId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(dificultad))
+        {
+            var normalizada = Dificultades.Normalizar(dificultad);
+            query = query.Where(p => p.Dificultad == normalizada);
         }
 
         var total = await query.CountAsync();
@@ -37,12 +53,6 @@ public class BancoPreguntaRepository(Context context) : IBancoPreguntaRepository
 
         return (items, total);
     }
-
-    public async Task<List<string>> FindEtiquetasTextosAsync(long creatorId) =>
-        await context.BancoPreguntas
-            .Where(p => p.CreatorId == creatorId && p.EtiquetasTexto != string.Empty)
-            .Select(p => p.EtiquetasTexto)
-            .ToListAsync();
 
     public async Task<BancoPregunta> AddAsync(BancoPregunta pregunta)
     {
@@ -58,10 +68,15 @@ public class BancoPreguntaRepository(Context context) : IBancoPreguntaRepository
         return pregunta;
     }
 
+    public async Task UpdateRangeAsync(IEnumerable<BancoPregunta> preguntas)
+    {
+        context.BancoPreguntas.UpdateRange(preguntas);
+        await context.SaveChangesAsync();
+    }
+
     public async Task DeleteAsync(BancoPregunta pregunta)
     {
         context.BancoPreguntas.Remove(pregunta);
         await context.SaveChangesAsync();
     }
-
 }

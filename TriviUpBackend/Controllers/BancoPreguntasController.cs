@@ -9,7 +9,7 @@ using TriviUpBackend.Errors;
 namespace TriviUpBackend.Controllers;
 
 /// <summary>
-/// Banco personal de preguntas: preguntas del usuario sin cuestionario, con etiquetas.
+/// Banco personal de preguntas: preguntas del usuario sin cuestionario, con categoría y dificultad.
 /// </summary>
 [ApiController]
 [Route("api/banco-preguntas")]
@@ -21,23 +21,17 @@ public class BancoPreguntasController(IBancoPreguntaService service) : Controlle
     [HttpGet]
     [ProducesResponseType(typeof(BancoPreguntaListResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> List(
-        [FromQuery] string? q, [FromQuery] string? etiqueta, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+        [FromQuery] string? q,
+        [FromQuery] long? categoriaId,
+        [FromQuery] bool sinCategoria = false,
+        [FromQuery] string? dificultad = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized(new { message = "Usuario no autenticado" });
 
-        var result = await service.ListAsync(userId.Value, q, etiqueta, page, pageSize);
-        return result.Match(Ok, HandleError);
-    }
-
-    [HttpGet("etiquetas")]
-    [ProducesResponseType(typeof(List<EtiquetaCountResponse>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetEtiquetas()
-    {
-        var userId = GetCurrentUserId();
-        if (userId == null) return Unauthorized(new { message = "Usuario no autenticado" });
-
-        var result = await service.GetEtiquetasAsync(userId.Value);
+        var result = await service.ListAsync(userId.Value, q, categoriaId, sinCategoria, dificultad, page, pageSize);
         return result.Match(Ok, HandleError);
     }
 
@@ -73,6 +67,18 @@ public class BancoPreguntasController(IBancoPreguntaService service) : Controlle
         if (userId == null) return Unauthorized(new { message = "Usuario no autenticado" });
 
         var result = await service.UpdateAsync(id, request, userId.Value);
+        return result.Match(Ok, HandleError);
+    }
+
+    /// <summary>Mueve varias preguntas a una categoría, o las deja sin categoría si categoriaId es null.</summary>
+    [HttpPost("asignar-categoria")]
+    [ProducesResponseType(typeof(AsignarCategoriaResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> AsignarCategoria([FromBody] AsignarCategoriaRequest request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { message = "Usuario no autenticado" });
+
+        var result = await service.AsignarCategoriaAsync(request, userId.Value);
         return result.Match(Ok, HandleError);
     }
 

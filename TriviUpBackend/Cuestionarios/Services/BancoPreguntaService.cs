@@ -9,35 +9,24 @@ namespace TriviUpBackend.Cuestionarios.Services;
 /// <inheritdoc />
 public class BancoPreguntaService(
     IBancoPreguntaRepository repository,
+    IBancoCategoriaService categoriaService,
     ILogger<BancoPreguntaService> logger
 ) : IBancoPreguntaService
 {
-    public const int MaxEtiquetas = 10;
-    public const int MaxEtiquetaLength = 30;
-
     public async Task<Result<BancoPreguntaListResponse, QuizError>> ListAsync(
-        long userId, string? search, string? etiqueta, int page, int pageSize)
+        long userId, string? search, long? categoriaId, bool sinCategoria, string? dificultad, int page, int pageSize)
     {
+        if (!Dificultades.EsValida(dificultad))
+        {
+            return Result.Failure<BancoPreguntaListResponse, QuizError>(new QuizValidationError("Dificultad no válida"));
+        }
+
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var (items, total) = await repository.FindByCreatorAsync(userId, search, etiqueta, page, pageSize);
+        var (items, total) = await repository.FindByCreatorAsync(userId, search, categoriaId, sinCategoria, dificultad, page, pageSize);
         return Result.Success<BancoPreguntaListResponse, QuizError>(
             new BancoPreguntaListResponse(items.Select(BancoPreguntaResponse.FromEntity).ToList(), total));
-    }
-
-    public async Task<Result<List<EtiquetaCountResponse>, QuizError>> GetEtiquetasAsync(long userId)
-    {
-        var textos = await repository.FindEtiquetasTextosAsync(userId);
-        var counts = textos
-            .SelectMany(t => t.Split('|', StringSplitOptions.RemoveEmptyEntries))
-            .GroupBy(t => t)
-            .Select(g => new EtiquetaCountResponse(g.Key, g.Count()))
-            .OrderByDescending(e => e.Total)
-            .ThenBy(e => e.Etiqueta, StringComparer.Ordinal)
-            .ToList();
-
-        return Result.Success<List<EtiquetaCountResponse>, QuizError>(counts);
     }
 
     public async Task<Result<BancoPreguntaResponse, QuizError>> GetByIdAsync(long id, long userId)
@@ -56,8 +45,14 @@ public class BancoPreguntaService(
             return Result.Failure<BancoPreguntaResponse, QuizError>(validation.Error);
         }
 
+        var categoria = await ResolverCategoriaAsync(request, userId);
+        if (categoria.IsFailure)
+        {
+            return Result.Failure<BancoPreguntaResponse, QuizError>(categoria.Error);
+        }
+
         var pregunta = new BancoPregunta { CreatorId = userId };
-        Apply(pregunta, request);
+        Apply(pregunta, request, categoria.Value);
 
         await repository.AddAsync(pregunta);
         logger.LogInformation("Pregunta {Id} guardada en el banco del usuario {UserId}", pregunta.Id, userId);
@@ -79,7 +74,13 @@ public class BancoPreguntaService(
             return Result.Failure<BancoPreguntaResponse, QuizError>(validation.Error);
         }
 
-        Apply(owned.Value, request);
+        var categoria = await ResolverCategoriaAsync(request, userId);
+        if (categoria.IsFailure)
+        {
+            return Result.Failure<BancoPreguntaResponse, QuizError>(categoria.Error);
+        }
+
+        Apply(owned.Value, request, categoria.Value);
         await repository.UpdateAsync(owned.Value);
 
         return Result.Success<BancoPreguntaResponse, QuizError>(BancoPreguntaResponse.FromEntity(owned.Value));
@@ -97,6 +98,37 @@ public class BancoPreguntaService(
         return UnitResult.Success<QuizError>();
     }
 
+    public async Task<Result<AsignarCategoriaResponse, QuizError>> AsignarCategoriaAsync(AsignarCategoriaRequest request, long userId)
+    {
+        var ids = request.PreguntaIds.Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return Result.Failure<AsignarCategoriaResponse, QuizError>(new QuizValidationError("Indica al menos una pregunta"));
+        }
+
+        BancoCategoria? categoria = null;
+        if (request.CategoriaId.HasValue)
+        {
+            var owned = await categoriaService.GetOwnedAsync(request.CategoriaId.Value, userId);
+            if (owned.IsFailure)
+            {
+                return Result.Failure<AsignarCategoriaResponse, QuizError>(owned.Error);
+            }
+            categoria = owned.Value;
+        }
+
+        // Solo se tocan las preguntas del usuario; los ids ajenos o inexistentes se ignoran
+        var preguntas = await repository.FindByIdsAsync(userId, ids);
+        foreach (var pregunta in preguntas)
+        {
+            pregunta.CategoriaId = categoria?.Id;
+            pregunta.Categoria = categoria;
+        }
+
+        await repository.UpdateRangeAsync(preguntas);
+        return Result.Success<AsignarCategoriaResponse, QuizError>(new AsignarCategoriaResponse(preguntas.Count));
+    }
+
     /// <summary>Busca la pregunta y comprueba que sea del usuario (404 si no existe o es de otro, para no revelar ids ajenos).</summary>
     private async Task<Result<BancoPregunta, QuizError>> FindOwnedAsync(long id, long userId)
     {
@@ -109,25 +141,39 @@ public class BancoPreguntaService(
         return Result.Success<BancoPregunta, QuizError>(pregunta);
     }
 
-    private static void Apply(BancoPregunta pregunta, BancoPreguntaRequest request)
+    /// <summary>Categoría por id (debe ser del usuario) o por nombre (existente o nueva); null si no se indica ninguna.</summary>
+    private async Task<Result<BancoCategoria?, QuizError>> ResolverCategoriaAsync(BancoPreguntaRequest request, long userId)
+    {
+        if (request.CategoriaId.HasValue)
+        {
+            var owned = await categoriaService.GetOwnedAsync(request.CategoriaId.Value, userId);
+            return owned.IsFailure
+                ? Result.Failure<BancoCategoria?, QuizError>(owned.Error)
+                : Result.Success<BancoCategoria?, QuizError>(owned.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.CategoriaNombre))
+        {
+            var porNombre = await categoriaService.FindOrCreateAsync(request.CategoriaNombre, userId);
+            return porNombre.IsFailure
+                ? Result.Failure<BancoCategoria?, QuizError>(porNombre.Error)
+                : Result.Success<BancoCategoria?, QuizError>(porNombre.Value);
+        }
+
+        return Result.Success<BancoCategoria?, QuizError>(null);
+    }
+
+    private static void Apply(BancoPregunta pregunta, BancoPreguntaRequest request, BancoCategoria? categoria)
     {
         pregunta.Enunciado = request.Enunciado.Trim();
         pregunta.ImagenUrl = string.IsNullOrWhiteSpace(request.ImagenUrl) ? null : request.ImagenUrl;
         pregunta.Respuestas = request.Respuestas
             .Select(r => new BancoRespuesta { Texto = r.Texto.Trim(), EsCorrecta = r.EsCorrecta })
             .ToList();
-        pregunta.Etiquetas = NormalizeEtiquetas(request.Etiquetas);
+        pregunta.Dificultad = Dificultades.Normalizar(request.Dificultad);
+        pregunta.CategoriaId = categoria?.Id;
+        pregunta.Categoria = categoria;
     }
-
-    /// <summary>Minúsculas, sin espacios sobrantes, sin '|' ni duplicados, con límites de número y longitud.</summary>
-    public static List<string> NormalizeEtiquetas(IEnumerable<string>? etiquetas) =>
-        (etiquetas ?? [])
-            .Select(e => e.Replace("|", " ").Trim().ToLowerInvariant())
-            .Where(e => e.Length > 0)
-            .Select(e => e.Length > MaxEtiquetaLength ? e[..MaxEtiquetaLength] : e)
-            .Distinct()
-            .Take(MaxEtiquetas)
-            .ToList();
 
     private static UnitResult<QuizError> Validate(BancoPreguntaRequest request)
     {
@@ -145,6 +191,11 @@ public class BancoPreguntaService(
         if (request.Respuestas.Count(r => r.EsCorrecta) != 1)
         {
             return UnitResult.Failure<QuizError>(new QuizValidationError("La pregunta debe tener exactamente una respuesta correcta"));
+        }
+
+        if (!Dificultades.EsValida(request.Dificultad))
+        {
+            return UnitResult.Failure<QuizError>(new QuizValidationError("Dificultad no válida. Usa facil, media o dificil."));
         }
 
         return UnitResult.Success<QuizError>();

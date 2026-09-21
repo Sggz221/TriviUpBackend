@@ -53,6 +53,7 @@ public class QuizService(
                 ImagenUrl = p.ImagenUrl,
                 FaseNumero = p.FaseNumero,
                 FaseNombre = NormalizeFaseNombre(p.FaseNombre),
+                Dificultad = Dificultades.NormalizarOSinClasificar(p.Dificultad),
                 Respuestas = p.Respuestas.Select(r => new Respuesta
                 {
                     Texto = r.Texto,
@@ -152,6 +153,7 @@ public class QuizService(
                 ImagenUrl = p.ImagenUrl,
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
+                Dificultad = p.Dificultad,
                 Respuestas = p.Respuestas.Select(r => new RespuestaResponse
                 {
                     Id = r.Id,
@@ -478,6 +480,7 @@ public class QuizService(
                 ImagenUrl = preguntaRequest.ImagenUrl,
                 FaseNumero = preguntaRequest.FaseNumero,
                 FaseNombre = NormalizeFaseNombre(preguntaRequest.FaseNombre),
+                Dificultad = Dificultades.NormalizarOSinClasificar(preguntaRequest.Dificultad),
                 Respuestas = preguntaRequest.Respuestas.Select(r => new Respuesta
                 {
                     Texto = r.Texto,
@@ -501,6 +504,7 @@ public class QuizService(
                 ImagenUrl = p.ImagenUrl,
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
+                Dificultad = p.Dificultad,
                 Respuestas = p.Respuestas
                     .Select(r => new UpdateRespuestaRequest { Texto = r.Texto, EsCorrecta = r.EsCorrecta })
                     .ToList()
@@ -647,7 +651,19 @@ public class QuizService(
             }
         }
 
+        var dificultad = ValidateDificultades(request.Preguntas.Select(p => p.Dificultad));
+        if (dificultad.IsFailure) return dificultad;
+
         return ValidateFases(request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre)));
+    }
+
+    private static UnitResult<QuizError> ValidateDificultades(IEnumerable<string?> dificultades)
+    {
+        var invalida = dificultades.FirstOrDefault(d => !Dificultades.EsValida(d));
+        return invalida is null
+            ? UnitResult.Success<QuizError>()
+            : UnitResult.Failure<QuizError>(new QuizValidationError(
+                $"Dificultad no válida: \"{invalida}\". Usa facil, media o dificil."));
     }
 
     private static string? NormalizeFaseNombre(string? nombre) =>
@@ -732,6 +748,9 @@ public class QuizService(
                     new QuizValidationError($"La pregunta {i + 1} debe tener exactamente una respuesta correcta"));
             }
         }
+
+        var dificultad = ValidateDificultades(request.Preguntas.Select(p => p.Dificultad));
+        if (dificultad.IsFailure) return dificultad;
 
         return ValidateFases(request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre)));
     }

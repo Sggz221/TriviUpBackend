@@ -148,6 +148,96 @@ public class QuizServicePhasesTests
         Assert.Equal(["Ronda 1", "Ronda 2"], content.Preguntas.Select(p => p.FaseNombre));
     }
 
+    private static CreatePreguntaRequest WithDificultad(string? dificultad) => CreateQ(1, 1, null) with { Dificultad = dificultad };
+
+    [Theory]
+    [InlineData("facil", "facil")]
+    [InlineData(" Dificil ", "dificil")]
+    [InlineData(null, null)]
+    public async Task CreateAsync_Difficulty_IsStoredNormalized(string? enviada, string? esperada)
+    {
+        Quiz? saved = null;
+        _repo.Setup(r => r.SaveAsync(It.IsAny<Quiz>())).Callback<Quiz>(q => saved = q).ReturnsAsync((Quiz q) => q);
+        _repo.Setup(r => r.FindByIdWithQuestionsAsync(It.IsAny<long>())).ReturnsAsync(() => saved);
+
+        var result = await _service.CreateAsync(Request(WithDificultad(enviada)), creatorId: 1);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(esperada, saved!.Preguntas.Single().Dificultad);
+        Assert.Equal(esperada, result.Value.Preguntas.Single().Dificultad);
+    }
+
+    [Fact]
+    public async Task CreateAsync_UnknownDifficulty_ReturnsValidationErrorWhenPublishing()
+    {
+        var result = await _service.CreateAsync(Request(WithDificultad("imposible")), creatorId: 1);
+
+        Assert.True(result.IsFailure);
+        Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task CreateAsync_UnknownDifficulty_IsDroppedInDrafts()
+    {
+        Quiz? saved = null;
+        _repo.Setup(r => r.SaveAsync(It.IsAny<Quiz>())).Callback<Quiz>(q => saved = q).ReturnsAsync((Quiz q) => q);
+        _repo.Setup(r => r.FindByIdWithQuestionsAsync(It.IsAny<long>())).ReturnsAsync(() => saved);
+
+        var result = await _service.CreateAsync(Request(WithDificultad("imposible")) with { EsBorrador = true }, creatorId: 1);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(saved!.Preguntas.Single().Dificultad);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DraftOfPublishedQuiz_KeepsDifficultyInStoredContent()
+    {
+        var quiz = new Quiz { Id = 1, Nombre = "Publicado", CreatorId = 1, VersionPublicada = 1, GameCode = "ABC123" };
+        _repo.Setup(r => r.FindByIdWithQuestionsAsync(1)).ReturnsAsync(quiz);
+        _repo.Setup(r => r.FindDraftAsync(1)).ReturnsAsync((QuizVersion?)null);
+        QuizVersion? stored = null;
+        _repo.Setup(r => r.SaveDraftAsync(It.IsAny<QuizVersion>()))
+            .Callback<QuizVersion>(v => stored = v).ReturnsAsync((QuizVersion v) => v);
+
+        var request = new UpdateQuizRequest
+        {
+            Nombre = "Editado",
+            EsBorrador = true,
+            Preguntas =
+            [
+                new UpdatePreguntaRequest
+                {
+                    NumeroPregunta = 1, Enunciado = "P1", Dificultad = "media",
+                    Respuestas = [new UpdateRespuestaRequest { Texto = "A", EsCorrecta = true }, new UpdateRespuestaRequest { Texto = "B" }]
+                }
+            ]
+        };
+
+        Assert.True((await _service.UpdateAsync(1, request, userId: 1)).IsSuccess);
+
+        var content = JsonSerializer.Deserialize<UpdateQuizRequest>(stored!.Contenido, JsonSerializerOptions.Web);
+        Assert.Equal("media", content!.Preguntas.Single().Dificultad);
+    }
+
+    [Fact]
+    public void FromDraft_CarriesDifficultyToTheResponse()
+    {
+        var quiz = new Quiz { Id = 1, Nombre = "Q", CreatorId = 1, GameCode = "ABC123", VersionPublicada = 1 };
+        var contenido = new UpdateQuizRequest
+        {
+            Nombre = "Q",
+            Preguntas =
+            [
+                new UpdatePreguntaRequest { NumeroPregunta = 1, Enunciado = "P", Dificultad = "Dificil" },
+                new UpdatePreguntaRequest { NumeroPregunta = 2, Enunciado = "Q", Dificultad = "rara" }
+            ]
+        };
+
+        var response = QuizResponse.FromDraft(quiz, contenido, DateTime.UtcNow);
+
+        Assert.Equal(["dificil", null], response.Preguntas.Select(p => p.Dificultad));
+    }
+
     [Fact]
     public void LegacyVersionContentWithoutPhases_DeserializesToPhaseOne()
     {

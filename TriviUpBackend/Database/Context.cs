@@ -19,6 +19,7 @@ public class Context(DbContextOptions options) : DbContext(options)
     public DbSet<GameHistory> GameHistories { get; set; } = null!;
     public DbSet<QuizVersion> QuizVersions { get; set; } = null!;
     public DbSet<BancoPregunta> BancoPreguntas { get; set; } = null!;
+    public DbSet<BancoCategoria> BancoCategorias { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -75,7 +76,18 @@ public class Context(DbContextOptions options) : DbContext(options)
             entity.ConfigureTimestamps();
             entity.HasIndex(b => b.CreatorId);
             entity.Property(b => b.RespuestasJson).HasColumnType("jsonb");
-            entity.Property(b => b.EtiquetasTexto).HasDefaultValue(string.Empty);
+            entity.HasOne(b => b.Categoria)
+                .WithMany()
+                .HasForeignKey(b => b.CategoriaId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(b => b.CategoriaId);
+        });
+
+        modelBuilder.Entity<BancoCategoria>(entity =>
+        {
+            entity.ConfigureTimestamps();
+            // La unicidad por usuario sin distinguir mayúsculas (lower("Nombre")) se crea con SQL en la migración
+            entity.HasIndex(c => c.CreatorId);
         });
 
         modelBuilder.Entity<Respuesta>(entity =>

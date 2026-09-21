@@ -19,8 +19,16 @@ public record BancoPreguntaRequest
     [Required(ErrorMessage = "Las respuestas son obligatorias")]
     public List<BancoRespuestaRequest> Respuestas { get; init; } = new();
 
-    /// <summary>Etiquetas libres (se normalizan: minúsculas, sin duplicados, máx. 10 de 30 caracteres).</summary>
-    public List<string> Etiquetas { get; init; } = new();
+    /// <summary>Dificultad: facil, media o dificil (opcional).</summary>
+    [MaxLength(10, ErrorMessage = "Dificultad no válida")]
+    public string? Dificultad { get; init; }
+
+    /// <summary>Categoría existente del usuario (tiene prioridad sobre <see cref="CategoriaNombre"/>).</summary>
+    public long? CategoriaId { get; init; }
+
+    /// <summary>Nombre de categoría: se usa la existente con ese nombre o se crea una nueva.</summary>
+    [MaxLength(BancoCategoria.NombreMaxLength, ErrorMessage = "El nombre de la categoría es demasiado largo")]
+    public string? CategoriaNombre { get; init; }
 }
 
 /// <summary>Respuesta de una pregunta del banco (entrada).</summary>
@@ -48,8 +56,14 @@ public record BancoPreguntaResponse
     [property: JsonPropertyName("respuestas")]
     public List<BancoRespuestaResponse> Respuestas { get; init; } = new();
 
-    [property: JsonPropertyName("etiquetas")]
-    public List<string> Etiquetas { get; init; } = new();
+    [property: JsonPropertyName("dificultad")]
+    public string? Dificultad { get; init; }
+
+    [property: JsonPropertyName("categoriaId")]
+    public long? CategoriaId { get; init; }
+
+    [property: JsonPropertyName("categoriaNombre")]
+    public string? CategoriaNombre { get; init; }
 
     [property: JsonPropertyName("fechaCreacion")]
     public DateTime FechaCreacion { get; init; }
@@ -63,7 +77,9 @@ public record BancoPreguntaResponse
         Enunciado = p.Enunciado,
         ImagenUrl = p.ImagenUrl,
         Respuestas = p.Respuestas.Select(r => new BancoRespuestaResponse { Texto = r.Texto, EsCorrecta = r.EsCorrecta }).ToList(),
-        Etiquetas = p.Etiquetas,
+        Dificultad = Dificultades.NormalizarOSinClasificar(p.Dificultad),
+        CategoriaId = p.CategoriaId,
+        CategoriaNombre = p.Categoria?.Nombre,
         FechaCreacion = p.CreatedAt,
         FechaActualizacion = p.UpdatedAt
     };
@@ -84,8 +100,37 @@ public record BancoPreguntaListResponse(
     [property: JsonPropertyName("totalCount")] int TotalCount
 );
 
-/// <summary>Etiqueta del usuario con el número de preguntas que la usan.</summary>
-public record EtiquetaCountResponse(
-    [property: JsonPropertyName("etiqueta")] string Etiqueta,
+/// <summary>Mover varias preguntas a una categoría (o quitarles la categoría si es null).</summary>
+public record AsignarCategoriaRequest
+{
+    [Required(ErrorMessage = "Indica las preguntas")]
+    public List<long> PreguntaIds { get; init; } = new();
+
+    public long? CategoriaId { get; init; }
+}
+
+/// <summary>Resultado de <see cref="AsignarCategoriaRequest"/>.</summary>
+public record AsignarCategoriaResponse(
+    [property: JsonPropertyName("actualizadas")] int Actualizadas
+);
+
+/// <summary>Solicitud para crear o renombrar una categoría.</summary>
+public record BancoCategoriaRequest
+{
+    [Required(ErrorMessage = "El nombre es obligatorio")]
+    [MaxLength(BancoCategoria.NombreMaxLength, ErrorMessage = "El nombre no puede exceder 50 caracteres")]
+    public string Nombre { get; init; } = string.Empty;
+}
+
+/// <summary>Categoría con el número de preguntas que contiene.</summary>
+public record BancoCategoriaResponse(
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("nombre")] string Nombre,
     [property: JsonPropertyName("total")] int Total
+);
+
+/// <summary>Categorías del usuario y cuántas preguntas no tienen ninguna.</summary>
+public record BancoCategoriasResponse(
+    [property: JsonPropertyName("categorias")] List<BancoCategoriaResponse> Categorias,
+    [property: JsonPropertyName("sinCategoria")] int SinCategoria
 );

@@ -36,6 +36,10 @@ public class Pregunta : ITimestamped
     [MaxLength(2000)]
     public string? ImagenUrl { get; set; }
 
+    /// <summary>Dificultad: facil, media, dificil o null (ver <see cref="Dificultades"/>).</summary>
+    [MaxLength(10)]
+    public string? Dificultad { get; set; }
+
     /// <summary>Fase (bloque) a la que pertenece la pregunta, empezando en 1.</summary>
     [Required]
     public int FaseNumero { get; set; } = 1;

@@ -58,6 +58,12 @@ public record CreatePreguntaRequest
     public string? ImagenUrl { get; init; }
 
     /// <summary>
+    /// Dificultad: facil, media o dificil (opcional).
+    /// </summary>
+    [MaxLength(10, ErrorMessage = "Dificultad no válida")]
+    public string? Dificultad { get; init; }
+
+    /// <summary>
     /// Fase (bloque) de la pregunta, empezando en 1.
     /// </summary>
     [Range(1, int.MaxValue, ErrorMessage = "La fase debe ser mayor a 0")]

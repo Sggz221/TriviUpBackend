@@ -32,13 +32,15 @@ public class BancoPregunta : ITimestamped
     [Required]
     public string RespuestasJson { get; set; } = "[]";
 
-    /// <summary>
-    /// Etiquetas en formato "|tag1|tag2|" para poder filtrar con un simple Contains
-    /// en cualquier proveedor. Usar <see cref="Etiquetas"/> para leer/escribir.
-    /// </summary>
-    [Required]
-    [MaxLength(2000)]
-    public string EtiquetasTexto { get; set; } = string.Empty;
+    /// <summary>Categoría del banco a la que pertenece (null = sin categoría).</summary>
+    public long? CategoriaId { get; set; }
+
+    [ForeignKey(nameof(CategoriaId))]
+    public BancoCategoria? Categoria { get; set; }
+
+    /// <summary>Dificultad: facil, media, dificil o null (ver <see cref="Dificultades"/>).</summary>
+    [MaxLength(10)]
+    public string? Dificultad { get; set; }
 
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 
@@ -52,16 +54,6 @@ public class BancoPregunta : ITimestamped
             : JsonSerializer.Deserialize<List<BancoRespuesta>>(RespuestasJson) ?? new List<BancoRespuesta>();
         set => RespuestasJson = JsonSerializer.Serialize(value);
     }
-
-    [NotMapped]
-    public List<string> Etiquetas
-    {
-        get => EtiquetasTexto.Split('|', StringSplitOptions.RemoveEmptyEntries).ToList();
-        set => EtiquetasTexto = value.Count == 0 ? string.Empty : $"|{string.Join('|', value)}|";
-    }
-
-    /// <summary>Texto con el que aparece una etiqueta exacta dentro de <see cref="EtiquetasTexto"/>.</summary>
-    public static string TagToken(string etiqueta) => $"|{etiqueta}|";
 }
 
 /// <summary>Respuesta de una pregunta del banco.</summary>
