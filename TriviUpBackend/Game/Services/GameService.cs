@@ -360,7 +360,12 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
 
         var random = new Random();
-        questions = questions.OrderBy(_ => random.Next()).ToList();
+        // Las fases se juegan en orden; el azar solo reordena las preguntas dentro de cada fase.
+        questions = questions
+            .GroupBy(q => q.FaseNumero)
+            .OrderBy(g => g.Key)
+            .SelectMany(g => g.OrderBy(_ => random.Next()))
+            .ToList();
         foreach (var question in questions)
         {
             question.Respuestas = question.Respuestas.OrderBy(_ => random.Next()).ToList();
@@ -681,6 +686,26 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return;
         }
 
+        // Al cambiar de fase se hace un intermedio: sin turno ni deadline hasta que el owner continúe.
+        var previous = session.Questions[session.CurrentQuestionIndex - 1];
+        var next = session.Questions[session.CurrentQuestionIndex];
+        if (next.FaseNumero != previous.FaseNumero)
+        {
+            session.State = GameState.PhaseBreak;
+            session.TurnDeadlineUnixMs = null;
+            session.TurnGeneration++;
+
+            await _store.ClearDeadlineAsync(session.RoomCode);
+            await _store.SaveAsync(session);
+            await BroadcastPhaseCompletedAsync(session);
+            return;
+        }
+
+        await StartNextTurnAsync(session);
+    }
+
+    private async Task StartNextTurnAsync(GameSessionDocument session)
+    {
         var nextPlayerId = session.RotateTurn();
         if (nextPlayerId is null)
         {
@@ -693,6 +718,63 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         await StartTurnDeadlineAsync(session);
         await BroadcastTurnStartedAsync(session);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result> ContinuePhaseAsync(string roomCode, long userId)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        if (session is null)
+        {
+            return Result.Failure("Room not found.");
+        }
+
+        if (session.OwnerId != userId)
+        {
+            return Result.Failure("Only the owner can continue to the next phase.");
+        }
+
+        if (session.State != GameState.PhaseBreak)
+        {
+            return Result.Failure("The game is not between phases.");
+        }
+
+        session.State = GameState.Playing;
+        await StartNextTurnAsync(session);
+
+        _logger.LogInformation("Room {RoomCode} continued to phase {Phase} by owner {UserId}",
+            roomCode, session.Questions[Math.Min(session.CurrentQuestionIndex, session.Questions.Count - 1)].FaseNumero, userId);
+
+        return Result.Success();
+    }
+
+    private static int GetTotalPhases(GameSessionDocument session) =>
+        session.Questions.Count == 0 ? 1 : session.Questions.Select(q => q.FaseNumero).Distinct().Count();
+
+    private static PhaseCompletedDto BuildPhaseCompleted(GameSessionDocument session)
+    {
+        var completed = session.Questions[Math.Max(session.CurrentQuestionIndex - 1, 0)];
+        var next = session.Questions[Math.Min(session.CurrentQuestionIndex, session.Questions.Count - 1)];
+        var players = session.Players.Select(p => new PlayerDto(
+            p.UserId, p.Username, p.Score, p.CorrectAnswers, p.WrongAnswers, false, p.IsOwner, p.IsConnected)).ToList();
+
+        return new PhaseCompletedDto(
+            session.RoomCode,
+            completed.FaseNumero,
+            completed.FaseNombre,
+            next.FaseNombre,
+            GetTotalPhases(session),
+            players);
+    }
+
+    private async Task BroadcastPhaseCompletedAsync(GameSessionDocument session)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+        await hubContext.Clients.Group(session.RoomCode).SendAsync("PhaseCompleted", BuildPhaseCompleted(session));
     }
 
     private async Task EndGameAsync(GameSessionDocument session)
@@ -760,7 +842,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     public async Task<RejoinStateDto?> GetRejoinStateAsync(string roomCode)
     {
         var session = await _store.GetAsync(roomCode);
-        if (session is null || (session.State != GameState.Playing && session.State != GameState.Paused))
+        if (session is null ||
+            (session.State != GameState.Playing && session.State != GameState.Paused && session.State != GameState.PhaseBreak))
         {
             return null;
         }
@@ -777,7 +860,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         TurnStartedDto? turn = null;
         var currentPlayerId = session.GetCurrentPlayerId();
-        if (currentPlayerId is not null && session.CurrentQuestionIndex < session.Questions.Count)
+        if (session.State != GameState.PhaseBreak &&
+            currentPlayerId is not null && session.CurrentQuestionIndex < session.Questions.Count)
         {
             var question = session.Questions[session.CurrentQuestionIndex];
 
@@ -802,10 +886,14 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 currentPlayerId.Value,
                 false,
                 new QuestionDto(question.Id, question.Enunciado, question.Respuestas.Select(r => r.Texto).ToList(), question.ImagenUrl),
-                remaining);
+                remaining,
+                question.FaseNumero,
+                question.FaseNombre,
+                GetTotalPhases(session));
         }
 
-        return new RejoinStateDto(gameState, turn, session.State == GameState.Paused);
+        var phaseBreak = session.State == GameState.PhaseBreak ? BuildPhaseCompleted(session) : null;
+        return new RejoinStateDto(gameState, turn, session.State == GameState.Paused, phaseBreak);
     }
 
     /// <summary>Valida el tiempo por turno: null = por defecto, 0 = sin tiempo, resto entre 5 y 120 s.</summary>
@@ -855,7 +943,10 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             currentPlayerId.Value,
             false,
             questionDto,
-            GetTurnLimitSeconds(session)
+            GetTurnLimitSeconds(session),
+            question.FaseNumero,
+            question.FaseNombre,
+            GetTotalPhases(session)
         );
 
         using var scope = _scopeFactory.CreateScope();

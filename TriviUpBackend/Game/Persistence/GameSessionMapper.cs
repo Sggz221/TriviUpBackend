@@ -92,6 +92,8 @@ public static class GameSessionMapper
         Id = pregunta.Id,
         Enunciado = pregunta.Enunciado,
         ImagenUrl = pregunta.ImagenUrl,
+        FaseNumero = pregunta.FaseNumero,
+        FaseNombre = pregunta.FaseNombre,
         Respuestas = pregunta.Respuestas.Select(r => new AnswerSnapshot
         {
             Id = r.Id,
@@ -105,6 +107,8 @@ public static class GameSessionMapper
         Id = snapshot.Id,
         Enunciado = snapshot.Enunciado,
         ImagenUrl = snapshot.ImagenUrl,
+        FaseNumero = snapshot.FaseNumero,
+        FaseNombre = snapshot.FaseNombre,
         Respuestas = snapshot.Respuestas.Select(r => new Respuesta
         {
             Id = r.Id,

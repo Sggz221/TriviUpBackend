@@ -63,6 +63,18 @@ public record UpdatePreguntaRequest
     public string? ImagenUrl { get; init; }
 
     /// <summary>
+    /// Fase (bloque) de la pregunta, empezando en 1.
+    /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "La fase debe ser mayor a 0")]
+    public int FaseNumero { get; init; } = 1;
+
+    /// <summary>
+    /// Nombre libre de la fase (opcional).
+    /// </summary>
+    [MaxLength(100, ErrorMessage = "El nombre de la fase no puede exceder 100 caracteres")]
+    public string? FaseNombre { get; init; }
+
+    /// <summary>
     /// Lista de respuestas de la pregunta.
     /// </summary>
     [Required(ErrorMessage = "Las respuestas son obligatorias")]

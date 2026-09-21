@@ -6,5 +6,6 @@ public enum GameState
     Starting,     // Partida a punto de comenzar (countdown)
     Playing,      // Partida en curso
     Paused,       // Partida pausada
-    Finished      // Partida terminada
+    Finished,     // Partida terminada
+    PhaseBreak    // Intermedio entre fases, a la espera de que el anfitrión continúe
 }

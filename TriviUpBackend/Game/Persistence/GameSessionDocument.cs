@@ -66,6 +66,8 @@ public sealed class QuestionSnapshot
     public long Id { get; set; }
     public string Enunciado { get; set; } = string.Empty;
     public string? ImagenUrl { get; set; }
+    public int FaseNumero { get; set; } = 1;
+    public string? FaseNombre { get; set; }
     public List<AnswerSnapshot> Respuestas { get; set; } = new();
 }
 

@@ -36,6 +36,14 @@ public class Pregunta : ITimestamped
     [MaxLength(2000)]
     public string? ImagenUrl { get; set; }
 
+    /// <summary>Fase (bloque) a la que pertenece la pregunta, empezando en 1.</summary>
+    [Required]
+    public int FaseNumero { get; set; } = 1;
+
+    /// <summary>Nombre libre de la fase (ronda, categoría, dificultad...). Igual para todas las preguntas de la fase.</summary>
+    [MaxLength(100)]
+    public string? FaseNombre { get; set; }
+
     public List<Respuesta> Respuestas { get; set; } = new();
 
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;

@@ -18,6 +18,7 @@ public class Context(DbContextOptions options) : DbContext(options)
     public DbSet<Respuesta> Respuestas { get; set; } = null!;
     public DbSet<GameHistory> GameHistories { get; set; } = null!;
     public DbSet<QuizVersion> QuizVersions { get; set; } = null!;
+    public DbSet<BancoPregunta> BancoPreguntas { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -62,10 +63,19 @@ public class Context(DbContextOptions options) : DbContext(options)
         modelBuilder.Entity<Pregunta>(entity =>
         {
             entity.ConfigureTimestamps();
+            entity.Property(p => p.FaseNumero).HasDefaultValue(1);
             entity.HasMany(p => p.Respuestas)
                 .WithOne(r => r.Pregunta)
                 .HasForeignKey(r => r.PreguntaId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BancoPregunta>(entity =>
+        {
+            entity.ConfigureTimestamps();
+            entity.HasIndex(b => b.CreatorId);
+            entity.Property(b => b.RespuestasJson).HasColumnType("jsonb");
+            entity.Property(b => b.EtiquetasTexto).HasDefaultValue(string.Empty);
         });
 
         modelBuilder.Entity<Respuesta>(entity =>

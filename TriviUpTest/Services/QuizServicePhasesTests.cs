@@ -1,0 +1,161 @@
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Moq;
+using TriviUpBackend.Cuestionarios.DTOs;
+using TriviUpBackend.Cuestionarios.Entities;
+using TriviUpBackend.Cuestionarios.Repositories;
+using TriviUpBackend.Cuestionarios.Services;
+using TriviUpBackend.Errors;
+using TriviUpBackend.Services.Cache;
+using Pregunta = TriviUpBackend.Cuestionarios.Entities.Pregunta;
+using Quiz = TriviUpBackend.Cuestionarios.Entities.Quiz;
+using Respuesta = TriviUpBackend.Cuestionarios.Entities.Respuesta;
+
+namespace TriviUpTest.Services;
+
+/// <summary>Fases de un cuestionario: validación y persistencia en borradores/versiones.</summary>
+public class QuizServicePhasesTests
+{
+    private readonly Mock<IQuizRepository> _repo = new();
+    private readonly QuizService _service;
+
+    public QuizServicePhasesTests()
+    {
+        _service = new QuizService(_repo.Object, new Mock<ILogger<QuizService>>().Object, new Mock<ICacheService>().Object);
+        _repo.Setup(r => r.FindByGameCodeAsync(It.IsAny<string>())).ReturnsAsync((Quiz?)null);
+        _repo.Setup(r => r.SaveAsync(It.IsAny<Quiz>())).ReturnsAsync((Quiz q) => q);
+        _repo.Setup(r => r.FindByIdWithQuestionsAsync(It.IsAny<long>())).ReturnsAsync((long _) => null);
+    }
+
+    private static CreatePreguntaRequest CreateQ(int numero, int fase, string? nombre) => new()
+    {
+        NumeroPregunta = numero,
+        Enunciado = $"Pregunta {numero}",
+        FaseNumero = fase,
+        FaseNombre = nombre,
+        Respuestas =
+        [
+            new CreateRespuestaRequest { Texto = "A", EsCorrecta = true },
+            new CreateRespuestaRequest { Texto = "B", EsCorrecta = false }
+        ]
+    };
+
+    private static CreateQuizRequest Request(params CreatePreguntaRequest[] preguntas) =>
+        new() { Nombre = "Quiz", Preguntas = preguntas.ToList() };
+
+    [Fact]
+    public async Task CreateAsync_TwoConsecutivePhases_SavesPhaseFieldsOnQuestions()
+    {
+        Quiz? saved = null;
+        _repo.Setup(r => r.SaveAsync(It.IsAny<Quiz>())).Callback<Quiz>(q => saved = q).ReturnsAsync((Quiz q) => q);
+        _repo.Setup(r => r.FindByIdWithQuestionsAsync(It.IsAny<long>())).ReturnsAsync(() => saved);
+
+        var result = await _service.CreateAsync(
+            Request(CreateQ(1, 1, "Ronda 1"), CreateQ(2, 1, " Ronda 1 "), CreateQ(3, 2, "  ")), creatorId: 1);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal([1, 1, 2], saved!.Preguntas.Select(p => p.FaseNumero));
+        Assert.Equal(["Ronda 1", "Ronda 1", null], saved.Preguntas.Select(p => p.FaseNombre));
+        Assert.Equal(2, result.Value.Preguntas[2].FaseNumero);
+    }
+
+    [Fact]
+    public async Task CreateAsync_PhasesNotStartingAtOne_ReturnsValidationError()
+    {
+        var result = await _service.CreateAsync(Request(CreateQ(1, 2, null), CreateQ(2, 2, null)), creatorId: 1);
+
+        Assert.True(result.IsFailure);
+        Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task CreateAsync_EmptyPhaseBetweenOthers_ReturnsValidationError()
+    {
+        var result = await _service.CreateAsync(Request(CreateQ(1, 1, null), CreateQ(2, 3, null)), creatorId: 1);
+
+        Assert.True(result.IsFailure);
+        Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task CreateAsync_PhaseGoingBackwards_ReturnsValidationError()
+    {
+        var result = await _service.CreateAsync(
+            Request(CreateQ(1, 1, null), CreateQ(2, 2, null), CreateQ(3, 1, null)), creatorId: 1);
+
+        Assert.True(result.IsFailure);
+        Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task CreateAsync_SamePhaseWithDifferentNames_ReturnsValidationError()
+    {
+        var result = await _service.CreateAsync(
+            Request(CreateQ(1, 1, "Ronda 1"), CreateQ(2, 1, "Otra")), creatorId: 1);
+
+        Assert.True(result.IsFailure);
+        Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task CreateAsync_DraftSkipsPhaseValidation()
+    {
+        Quiz? saved = null;
+        _repo.Setup(r => r.SaveAsync(It.IsAny<Quiz>())).Callback<Quiz>(q => saved = q).ReturnsAsync((Quiz q) => q);
+        _repo.Setup(r => r.FindByIdWithQuestionsAsync(It.IsAny<long>())).ReturnsAsync(() => saved);
+        var request = Request(CreateQ(1, 3, null)) with { EsBorrador = true };
+
+        var result = await _service.CreateAsync(request, creatorId: 1);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DraftOfPublishedQuiz_KeepsPhasesInStoredContent()
+    {
+        var quiz = new Quiz { Id = 1, Nombre = "Publicado", CreatorId = 1, VersionPublicada = 1, GameCode = "ABC123" };
+        _repo.Setup(r => r.FindByIdWithQuestionsAsync(1)).ReturnsAsync(quiz);
+        _repo.Setup(r => r.FindDraftAsync(1)).ReturnsAsync((QuizVersion?)null);
+        QuizVersion? stored = null;
+        _repo.Setup(r => r.SaveDraftAsync(It.IsAny<QuizVersion>()))
+            .Callback<QuizVersion>(v => stored = v).ReturnsAsync((QuizVersion v) => v);
+
+        var request = new UpdateQuizRequest
+        {
+            Nombre = "Editado",
+            EsBorrador = true,
+            Preguntas =
+            [
+                new UpdatePreguntaRequest
+                {
+                    NumeroPregunta = 1, Enunciado = "P1", FaseNumero = 1, FaseNombre = "Ronda 1",
+                    Respuestas = [new UpdateRespuestaRequest { Texto = "A", EsCorrecta = true }, new UpdateRespuestaRequest { Texto = "B" }]
+                },
+                new UpdatePreguntaRequest
+                {
+                    NumeroPregunta = 2, Enunciado = "P2", FaseNumero = 2, FaseNombre = "Ronda 2",
+                    Respuestas = [new UpdateRespuestaRequest { Texto = "A", EsCorrecta = true }, new UpdateRespuestaRequest { Texto = "B" }]
+                }
+            ]
+        };
+
+        var result = await _service.UpdateAsync(1, request, userId: 1);
+
+        Assert.True(result.IsSuccess);
+
+        var content = JsonSerializer.Deserialize<UpdateQuizRequest>(stored!.Contenido, JsonSerializerOptions.Web);
+        Assert.Equal([1, 2], content!.Preguntas.Select(p => p.FaseNumero));
+        Assert.Equal(["Ronda 1", "Ronda 2"], content.Preguntas.Select(p => p.FaseNombre));
+    }
+
+    [Fact]
+    public void LegacyVersionContentWithoutPhases_DeserializesToPhaseOne()
+    {
+        const string legacy = """{"Nombre":"Viejo","Preguntas":[{"NumeroPregunta":1,"Enunciado":"P","Respuestas":[]}]}""";
+
+        var content = JsonSerializer.Deserialize<UpdateQuizRequest>(legacy, JsonSerializerOptions.Web);
+
+        Assert.Equal(1, content!.Preguntas[0].FaseNumero);
+        Assert.Null(content.Preguntas[0].FaseNombre);
+    }
+}

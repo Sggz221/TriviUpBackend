@@ -22,6 +22,7 @@ public static class DependencyInjectionConfig
         //services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IQuizRepository, QuizRepository>();
+        services.AddScoped<IBancoPreguntaRepository, BancoPreguntaRepository>();
         services.AddScoped<IGameHistoryRepository, GameHistoryRepository>();
 
         // Servicios
@@ -31,6 +32,7 @@ public static class DependencyInjectionConfig
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IJwtTokenExtractor, JwtTokenExtractor>();
         services.AddScoped<IQuizService, QuizService>();
+        services.AddScoped<IBancoPreguntaService, BancoPreguntaService>();
 
         // Storage
         services.AddScoped<IStorage, Storage>();

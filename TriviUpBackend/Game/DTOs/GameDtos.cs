@@ -90,7 +90,8 @@ public record PlayerResultDto(
 public record RejoinStateDto(
     GameStateDto GameState,
     TurnStartedDto? Turn,
-    bool Paused
+    bool Paused,
+    PhaseCompletedDto? PhaseBreak = null
 );
 
 /// <summary>
@@ -100,7 +101,22 @@ public record TurnStartedDto(
     long CurrentPlayerId,
     bool IsMyTurn,
     QuestionDto Question,
-    int TimeLimit
+    int TimeLimit,
+    int FaseNumero = 1,
+    string? FaseNombre = null,
+    int TotalFases = 1
+);
+
+/// <summary>
+/// Intermedio al terminar una fase: marcador actual y datos de la fase siguiente.
+/// </summary>
+public record PhaseCompletedDto(
+    string RoomCode,
+    int FaseNumero,
+    string? FaseNombre,
+    string? SiguienteFaseNombre,
+    int TotalFases,
+    List<PlayerDto> Players
 );
 
 /// <summary>

@@ -51,6 +51,8 @@ public class QuizService(
                 NumeroPregunta = p.NumeroPregunta,
                 Enunciado = p.Enunciado,
                 ImagenUrl = p.ImagenUrl,
+                FaseNumero = p.FaseNumero,
+                FaseNombre = NormalizeFaseNombre(p.FaseNombre),
                 Respuestas = p.Respuestas.Select(r => new Respuesta
                 {
                     Texto = r.Texto,
@@ -148,6 +150,8 @@ public class QuizService(
                 NumeroPregunta = p.NumeroPregunta,
                 Enunciado = p.Enunciado,
                 ImagenUrl = p.ImagenUrl,
+                FaseNumero = p.FaseNumero,
+                FaseNombre = p.FaseNombre,
                 Respuestas = p.Respuestas.Select(r => new RespuestaResponse
                 {
                     Id = r.Id,
@@ -472,6 +476,8 @@ public class QuizService(
                 NumeroPregunta = preguntaRequest.NumeroPregunta,
                 Enunciado = preguntaRequest.Enunciado,
                 ImagenUrl = preguntaRequest.ImagenUrl,
+                FaseNumero = preguntaRequest.FaseNumero,
+                FaseNombre = NormalizeFaseNombre(preguntaRequest.FaseNombre),
                 Respuestas = preguntaRequest.Respuestas.Select(r => new Respuesta
                 {
                     Texto = r.Texto,
@@ -493,6 +499,8 @@ public class QuizService(
                 NumeroPregunta = p.NumeroPregunta,
                 Enunciado = p.Enunciado,
                 ImagenUrl = p.ImagenUrl,
+                FaseNumero = p.FaseNumero,
+                FaseNombre = p.FaseNombre,
                 Respuestas = p.Respuestas
                     .Select(r => new UpdateRespuestaRequest { Texto = r.Texto, EsCorrecta = r.EsCorrecta })
                     .ToList()
@@ -639,6 +647,57 @@ public class QuizService(
             }
         }
 
+        return ValidateFases(request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre)));
+    }
+
+    private static string? NormalizeFaseNombre(string? nombre) =>
+        string.IsNullOrWhiteSpace(nombre) ? null : nombre.Trim();
+
+    /// <summary>
+    /// Las fases, siguiendo el orden de las preguntas, deben empezar en 1, no retroceder,
+    /// avanzar de una en una y mantener el mismo nombre dentro de cada fase.
+    /// </summary>
+    private static UnitResult<QuizError> ValidateFases(IEnumerable<(int Numero, int Fase, string? Nombre)> preguntas)
+    {
+        var fase = 1;
+        string? nombreFase = null;
+        var primera = true;
+
+        foreach (var (_, faseActual, nombreRaw) in preguntas.OrderBy(p => p.Numero))
+        {
+            var nombre = NormalizeFaseNombre(nombreRaw);
+
+            if (primera)
+            {
+                if (faseActual != 1)
+                {
+                    return UnitResult.Failure<QuizError>(new QuizValidationError("Las fases deben empezar en 1"));
+                }
+                nombreFase = nombre;
+                primera = false;
+                continue;
+            }
+
+            if (faseActual == fase)
+            {
+                if (!string.Equals(nombre, nombreFase, StringComparison.Ordinal))
+                {
+                    return UnitResult.Failure<QuizError>(
+                        new QuizValidationError($"Las preguntas de la fase {fase} deben tener el mismo nombre de fase"));
+                }
+            }
+            else if (faseActual == fase + 1)
+            {
+                fase = faseActual;
+                nombreFase = nombre;
+            }
+            else
+            {
+                return UnitResult.Failure<QuizError>(
+                    new QuizValidationError("Las fases deben ser consecutivas y no puede haber fases vacías"));
+            }
+        }
+
         return UnitResult.Success<QuizError>();
     }
 
@@ -674,7 +733,7 @@ public class QuizService(
             }
         }
 
-        return UnitResult.Success<QuizError>();
+        return ValidateFases(request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre)));
     }
 
     private async Task<string> GenerateUniqueGameCodeAsync()

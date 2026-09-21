@@ -60,6 +60,8 @@ public record QuizResponse
                 NumeroPregunta = p.NumeroPregunta,
                 Enunciado = p.Enunciado,
                 ImagenUrl = p.ImagenUrl,
+                FaseNumero = p.FaseNumero,
+                FaseNombre = p.FaseNombre,
                 Respuestas = p.Respuestas
                     .Select(r => new RespuestaResponse { Texto = r.Texto, EsCorrecta = r.EsCorrecta })
                     .ToList()
@@ -124,6 +126,12 @@ public record PreguntaResponse
     [property: JsonPropertyName("imagenUrl")]
     public string? ImagenUrl { get; init; }
 
+    [property: JsonPropertyName("faseNumero")]
+    public int FaseNumero { get; init; } = 1;
+
+    [property: JsonPropertyName("faseNombre")]
+    public string? FaseNombre { get; init; }
+
     [property: JsonPropertyName("respuestas")]
     public List<RespuestaResponse> Respuestas { get; init; } = new();
 
@@ -136,6 +144,8 @@ public record PreguntaResponse
         NumeroPregunta = pregunta.NumeroPregunta,
         Enunciado = pregunta.Enunciado,
         ImagenUrl = pregunta.ImagenUrl,
+        FaseNumero = pregunta.FaseNumero,
+        FaseNombre = pregunta.FaseNombre,
         Respuestas = pregunta.Respuestas.Select(RespuestaResponse.FromEntity).ToList()
     };
 }

@@ -79,6 +79,13 @@ public interface IGameService
     Task<Result> ResumeGameAsync(string roomCode, long userId);
 
     /// <summary>
+    /// Sale del intermedio entre fases y arranca el primer turno de la siguiente. Solo el propietario.
+    /// </summary>
+    /// <param name="roomCode">Código de la sala.</param>
+    /// <param name="userId">ID del usuario que intenta continuar.</param>
+    Task<Result> ContinuePhaseAsync(string roomCode, long userId);
+
+    /// <summary>
     /// Devuelve el estado actual (pregunta, turno, pausa) de una partida en curso para quien
     /// se reconecta a la sala, o null si la partida no está en curso.
     /// </summary>

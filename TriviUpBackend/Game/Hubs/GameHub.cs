@@ -205,6 +205,10 @@ public class GameHub : Hub
             {
                 await Clients.Caller.SendAsync("TurnStarted", rejoin.Turn);
             }
+            if (rejoin.PhaseBreak is not null)
+            {
+                await Clients.Caller.SendAsync("PhaseCompleted", rejoin.PhaseBreak);
+            }
             if (rejoin.Paused)
             {
                 await Clients.Caller.SendAsync("GamePaused", new GamePausedDto(roomCode, DateTime.UtcNow));
@@ -333,6 +337,23 @@ public class GameHub : Hub
         }
 
         _logger.LogInformation("Game resumed in room {RoomCode} by user {UserId}", roomCode, userId);
+    }
+
+    /// <summary>
+    /// Continúa a la siguiente fase desde el intermedio. Solo el owner puede continuar.
+    /// </summary>
+    public async Task ContinuePhase(string roomCode)
+    {
+        var userId = GetAuthenticatedUserId();
+        _logger.LogInformation("User {UserId} attempting to continue phase in game {RoomCode}", userId, roomCode);
+
+        var result = await _gameService.ContinuePhaseAsync(roomCode, userId);
+        if (result.IsFailure)
+        {
+            _logger.LogWarning("Failed to continue phase in game {RoomCode} for user {UserId}: {Error}",
+                roomCode, userId, result.Error);
+            throw new HubException(result.Error);
+        }
     }
 
     /// <summary>

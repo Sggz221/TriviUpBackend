@@ -2,6 +2,7 @@ using System.Security.Claims;
 using CSharpFunctionalExtensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using TriviUpBackend.Common.Storage;
 using TriviUpBackend.Cuestionarios.Repositories;
 using TriviUpBackend.Database;
@@ -25,6 +26,13 @@ public class QuestionImagesController(
     ILogger<QuestionImagesController> logger
 ) : ControllerBase
 {
+    /// <summary>
+    /// Indica si otra pregunta (de un cuestionario o del banco) usa el mismo fichero de imagen.
+    /// </summary>
+    private async Task<bool> IsImageSharedAsync(string imagenUrl, long preguntaId) =>
+        await context.Preguntas.AnyAsync(p => p.ImagenUrl == imagenUrl && p.Id != preguntaId)
+        || await context.BancoPreguntas.AnyAsync(b => b.ImagenUrl == imagenUrl);
+
     /// <summary>
     /// Sube una imagen para una pregunta específica.
     /// Solo el creador del cuestionario puede subir imágenes a sus preguntas.
@@ -69,7 +77,7 @@ public class QuestionImagesController(
         }
 
         // Si ya existe una imagen, eliminarla primero
-        if (!string.IsNullOrEmpty(pregunta.ImagenUrl))
+        if (!string.IsNullOrEmpty(pregunta.ImagenUrl) && !await IsImageSharedAsync(pregunta.ImagenUrl, preguntaId))
         {
             var deleteResult = await questionImageStorage.DeleteQuestionImageAsync(pregunta.ImagenUrl);
             if (deleteResult.IsFailure)
@@ -147,12 +155,16 @@ public class QuestionImagesController(
             return NoContent();
         }
 
-        var result = await questionImageStorage.DeleteQuestionImageAsync(pregunta.ImagenUrl);
-
-        if (result.IsFailure)
+        // Las copias desde el banco comparten fichero: solo se borra si nadie más lo usa.
+        if (!await IsImageSharedAsync(pregunta.ImagenUrl, preguntaId))
         {
-            logger.LogError("Error eliminando imagen de pregunta {PreguntaId}: {Error}", preguntaId, result.Error);
-            return StatusCode(500, new { message = result.Error.Error });
+            var result = await questionImageStorage.DeleteQuestionImageAsync(pregunta.ImagenUrl);
+
+            if (result.IsFailure)
+            {
+                logger.LogError("Error eliminando imagen de pregunta {PreguntaId}: {Error}", preguntaId, result.Error);
+                return StatusCode(500, new { message = result.Error.Error });
+            }
         }
 
         // Limpiar la URL en la base de datos
