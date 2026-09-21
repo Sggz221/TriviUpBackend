@@ -104,7 +104,8 @@ public record TurnStartedDto(
     int TimeLimit,
     int FaseNumero = 1,
     string? FaseNombre = null,
-    int TotalFases = 1
+    int TotalFases = 1,
+    string? FaseColor = null
 );
 
 /// <summary>
@@ -116,7 +117,10 @@ public record PhaseCompletedDto(
     string? FaseNombre,
     string? SiguienteFaseNombre,
     int TotalFases,
-    List<PlayerDto> Players
+    List<PlayerDto> Players,
+    string? FaseColor = null,
+    int SiguienteFaseNumero = 0,
+    string? SiguienteFaseColor = null
 );
 
 /// <summary>

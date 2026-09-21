@@ -27,12 +27,13 @@ public class QuizServicePhasesTests
         _repo.Setup(r => r.FindByIdWithQuestionsAsync(It.IsAny<long>())).ReturnsAsync((long _) => null);
     }
 
-    private static CreatePreguntaRequest CreateQ(int numero, int fase, string? nombre) => new()
+    private static CreatePreguntaRequest CreateQ(int numero, int fase, string? nombre, string? color = null) => new()
     {
         NumeroPregunta = numero,
         Enunciado = $"Pregunta {numero}",
         FaseNumero = fase,
         FaseNombre = nombre,
+        FaseColor = color,
         Respuestas =
         [
             new CreateRespuestaRequest { Texto = "A", EsCorrecta = true },
@@ -95,6 +96,65 @@ public class QuizServicePhasesTests
 
         Assert.True(result.IsFailure);
         Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task CreateAsync_PhaseColor_IsStoredNormalized()
+    {
+        Quiz? saved = null;
+        _repo.Setup(r => r.SaveAsync(It.IsAny<Quiz>())).Callback<Quiz>(q => saved = q).ReturnsAsync((Quiz q) => q);
+        _repo.Setup(r => r.FindByIdWithQuestionsAsync(It.IsAny<long>())).ReturnsAsync(() => saved);
+
+        var result = await _service.CreateAsync(
+            Request(CreateQ(1, 1, "A", " #FF8800 "), CreateQ(2, 1, "A", "#ff8800"), CreateQ(3, 2, "B", null)), creatorId: 1);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(["#ff8800", "#ff8800", null], saved!.Preguntas.Select(p => p.FaseColor));
+        Assert.Equal("#ff8800", result.Value.Preguntas[0].FaseColor);
+    }
+
+    [Theory]
+    [InlineData("rojo")]
+    [InlineData("#fff")]
+    [InlineData("ff0000")]
+    [InlineData("#gg0000")]
+    public async Task CreateAsync_InvalidPhaseColor_ReturnsValidationError(string color)
+    {
+        var result = await _service.CreateAsync(Request(CreateQ(1, 1, null, color)), creatorId: 1);
+
+        Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task CreateAsync_SamePhaseWithDifferentColors_ReturnsValidationError()
+    {
+        var result = await _service.CreateAsync(
+            Request(CreateQ(1, 1, "A", "#ff0000"), CreateQ(2, 1, "A", "#00ff00")), creatorId: 1);
+
+        Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task CreateAsync_InvalidPhaseColor_IsDroppedInDrafts()
+    {
+        Quiz? saved = null;
+        _repo.Setup(r => r.SaveAsync(It.IsAny<Quiz>())).Callback<Quiz>(q => saved = q).ReturnsAsync((Quiz q) => q);
+        _repo.Setup(r => r.FindByIdWithQuestionsAsync(It.IsAny<long>())).ReturnsAsync(() => saved);
+
+        var result = await _service.CreateAsync(Request(CreateQ(1, 1, null, "rojo")) with { EsBorrador = true }, creatorId: 1);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(saved!.Preguntas.Single().FaseColor);
+    }
+
+    [Fact]
+    public void LegacyVersionContentWithoutColor_DeserializesToNull()
+    {
+        const string legacy = """{"Nombre":"Viejo","Preguntas":[{"NumeroPregunta":1,"Enunciado":"P","FaseNumero":2,"Respuestas":[]}]}""";
+
+        var content = JsonSerializer.Deserialize<UpdateQuizRequest>(legacy, JsonSerializerOptions.Web);
+
+        Assert.Null(content!.Preguntas[0].FaseColor);
     }
 
     [Fact]

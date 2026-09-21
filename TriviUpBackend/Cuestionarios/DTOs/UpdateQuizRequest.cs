@@ -81,6 +81,12 @@ public record UpdatePreguntaRequest
     public string? FaseNombre { get; init; }
 
     /// <summary>
+    /// Color de la fase en formato #rrggbb (opcional).
+    /// </summary>
+    [MaxLength(7, ErrorMessage = "Color de fase no válido")]
+    public string? FaseColor { get; init; }
+
+    /// <summary>
     /// Lista de respuestas de la pregunta.
     /// </summary>
     [Required(ErrorMessage = "Las respuestas son obligatorias")]

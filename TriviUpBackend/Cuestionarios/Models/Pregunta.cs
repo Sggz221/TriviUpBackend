@@ -48,6 +48,10 @@ public class Pregunta : ITimestamped
     [MaxLength(100)]
     public string? FaseNombre { get; set; }
 
+    /// <summary>Color de la fase en #rrggbb (igual para todas las preguntas de la fase); null = por defecto.</summary>
+    [MaxLength(7)]
+    public string? FaseColor { get; set; }
+
     public List<Respuesta> Respuestas { get; set; } = new();
 
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;

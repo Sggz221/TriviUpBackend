@@ -53,6 +53,7 @@ public class QuizService(
                 ImagenUrl = p.ImagenUrl,
                 FaseNumero = p.FaseNumero,
                 FaseNombre = NormalizeFaseNombre(p.FaseNombre),
+                FaseColor = FaseColores.NormalizarOSinColor(p.FaseColor),
                 Dificultad = Dificultades.NormalizarOSinClasificar(p.Dificultad),
                 Respuestas = p.Respuestas.Select(r => new Respuesta
                 {
@@ -153,6 +154,7 @@ public class QuizService(
                 ImagenUrl = p.ImagenUrl,
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
+                FaseColor = p.FaseColor,
                 Dificultad = p.Dificultad,
                 Respuestas = p.Respuestas.Select(r => new RespuestaResponse
                 {
@@ -480,6 +482,7 @@ public class QuizService(
                 ImagenUrl = preguntaRequest.ImagenUrl,
                 FaseNumero = preguntaRequest.FaseNumero,
                 FaseNombre = NormalizeFaseNombre(preguntaRequest.FaseNombre),
+                FaseColor = FaseColores.NormalizarOSinColor(preguntaRequest.FaseColor),
                 Dificultad = Dificultades.NormalizarOSinClasificar(preguntaRequest.Dificultad),
                 Respuestas = preguntaRequest.Respuestas.Select(r => new Respuesta
                 {
@@ -504,6 +507,7 @@ public class QuizService(
                 ImagenUrl = p.ImagenUrl,
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
+                FaseColor = p.FaseColor,
                 Dificultad = p.Dificultad,
                 Respuestas = p.Respuestas
                     .Select(r => new UpdateRespuestaRequest { Texto = r.Texto, EsCorrecta = r.EsCorrecta })
@@ -654,7 +658,19 @@ public class QuizService(
         var dificultad = ValidateDificultades(request.Preguntas.Select(p => p.Dificultad));
         if (dificultad.IsFailure) return dificultad;
 
-        return ValidateFases(request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre)));
+        var color = ValidateColores(request.Preguntas.Select(p => p.FaseColor));
+        if (color.IsFailure) return color;
+
+        return ValidateFases(request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre, p.FaseColor)));
+    }
+
+    private static UnitResult<QuizError> ValidateColores(IEnumerable<string?> colores)
+    {
+        var invalido = colores.FirstOrDefault(c => !FaseColores.EsValido(c));
+        return invalido is null
+            ? UnitResult.Success<QuizError>()
+            : UnitResult.Failure<QuizError>(new QuizValidationError(
+                $"Color de fase no válido: \"{invalido}\". Usa el formato #rrggbb."));
     }
 
     private static UnitResult<QuizError> ValidateDificultades(IEnumerable<string?> dificultades)
@@ -673,15 +689,17 @@ public class QuizService(
     /// Las fases, siguiendo el orden de las preguntas, deben empezar en 1, no retroceder,
     /// avanzar de una en una y mantener el mismo nombre dentro de cada fase.
     /// </summary>
-    private static UnitResult<QuizError> ValidateFases(IEnumerable<(int Numero, int Fase, string? Nombre)> preguntas)
+    private static UnitResult<QuizError> ValidateFases(IEnumerable<(int Numero, int Fase, string? Nombre, string? Color)> preguntas)
     {
         var fase = 1;
         string? nombreFase = null;
+        string? colorFase = null;
         var primera = true;
 
-        foreach (var (_, faseActual, nombreRaw) in preguntas.OrderBy(p => p.Numero))
+        foreach (var (_, faseActual, nombreRaw, colorRaw) in preguntas.OrderBy(p => p.Numero))
         {
             var nombre = NormalizeFaseNombre(nombreRaw);
+            var color = FaseColores.NormalizarOSinColor(colorRaw);
 
             if (primera)
             {
@@ -690,6 +708,7 @@ public class QuizService(
                     return UnitResult.Failure<QuizError>(new QuizValidationError("Las fases deben empezar en 1"));
                 }
                 nombreFase = nombre;
+                colorFase = color;
                 primera = false;
                 continue;
             }
@@ -701,11 +720,18 @@ public class QuizService(
                     return UnitResult.Failure<QuizError>(
                         new QuizValidationError($"Las preguntas de la fase {fase} deben tener el mismo nombre de fase"));
                 }
+
+                if (!string.Equals(color, colorFase, StringComparison.Ordinal))
+                {
+                    return UnitResult.Failure<QuizError>(
+                        new QuizValidationError($"Las preguntas de la fase {fase} deben tener el mismo color de fase"));
+                }
             }
             else if (faseActual == fase + 1)
             {
                 fase = faseActual;
                 nombreFase = nombre;
+                colorFase = color;
             }
             else
             {
@@ -752,7 +778,10 @@ public class QuizService(
         var dificultad = ValidateDificultades(request.Preguntas.Select(p => p.Dificultad));
         if (dificultad.IsFailure) return dificultad;
 
-        return ValidateFases(request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre)));
+        var color = ValidateColores(request.Preguntas.Select(p => p.FaseColor));
+        if (color.IsFailure) return color;
+
+        return ValidateFases(request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre, p.FaseColor)));
     }
 
     private async Task<string> GenerateUniqueGameCodeAsync()

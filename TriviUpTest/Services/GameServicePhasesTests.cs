@@ -57,13 +57,14 @@ public class GameServicePhasesTests
         _service = new GameService(_store, options, new Mock<ILogger<GameService>>().Object, scopeFactory.Object);
     }
 
-    private static Pregunta Q(long id, int fase, string? nombre) => new()
+    private static Pregunta Q(long id, int fase, string? nombre, string? color = null) => new()
     {
         Id = id,
         NumeroPregunta = (int)id,
         Enunciado = $"Pregunta {id}",
         FaseNumero = fase,
         FaseNombre = nombre,
+        FaseColor = color,
         Respuestas =
         [
             new Respuesta { Id = id * 10 + 1, Texto = "Sí", EsCorrecta = true },
@@ -215,6 +216,23 @@ public class GameServicePhasesTests
         Assert.Equal("Ronda 1", rejoin.PhaseBreak.FaseNombre);
         Assert.Equal("Ronda 2", rejoin.PhaseBreak.SiguienteFaseNombre);
         Assert.Equal(2, rejoin.PhaseBreak.TotalFases);
+    }
+
+    [Fact]
+    public async Task PhaseColors_TravelInTurnAndPhaseBreakDtos()
+    {
+        _questions = [Q(1, 1, "Ronda 1", "#ff0000"), Q(2, 2, "Ronda 2", "#00ff00")];
+        var roomCode = await StartRoomAsync();
+
+        var jugando = await _service.GetRejoinStateAsync(roomCode);
+        Assert.Equal("#ff0000", jugando!.Turn!.FaseColor);
+
+        await AnswerCurrentAsync(roomCode);
+        var intermedio = (await _service.GetRejoinStateAsync(roomCode))!.PhaseBreak!;
+
+        Assert.Equal("#ff0000", intermedio.FaseColor);
+        Assert.Equal(2, intermedio.SiguienteFaseNumero);
+        Assert.Equal("#00ff00", intermedio.SiguienteFaseColor);
     }
 
     [Fact]

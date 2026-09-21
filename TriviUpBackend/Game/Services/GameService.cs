@@ -767,7 +767,10 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             completed.FaseNombre,
             next.FaseNombre,
             GetTotalPhases(session),
-            players);
+            players,
+            completed.FaseColor,
+            next.FaseNumero,
+            next.FaseColor);
     }
 
     private async Task BroadcastPhaseCompletedAsync(GameSessionDocument session)
@@ -889,7 +892,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 remaining,
                 question.FaseNumero,
                 question.FaseNombre,
-                GetTotalPhases(session));
+                GetTotalPhases(session),
+                question.FaseColor);
         }
 
         var phaseBreak = session.State == GameState.PhaseBreak ? BuildPhaseCompleted(session) : null;
@@ -946,7 +950,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             GetTurnLimitSeconds(session),
             question.FaseNumero,
             question.FaseNombre,
-            GetTotalPhases(session)
+            GetTotalPhases(session),
+            question.FaseColor
         );
 
         using var scope = _scopeFactory.CreateScope();
