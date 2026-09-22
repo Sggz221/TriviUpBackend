@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="TriviUpBackend/TriviUpBackend.csproj" />
+  <Project Path="TriviUpMcp/TriviUpMcp.csproj" />
   <Project Path="TriviUpTest/TriviUpTest.csproj" />
 </Solution>
