@@ -30,6 +30,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<SessionAuthStore>();
 builder.Services.AddSingleton<OAuthStore>();
+builder.Services.AddSingleton(new TriviUpBackendOptions(apiBaseUrl));
 builder.Services.AddScoped<ISessionKeyProvider, HttpSessionKeyProvider>();
 builder.Services.AddScoped<AuthSessionState>();
 builder.Services.AddHttpClient<TriviUpApiClient>(client =>

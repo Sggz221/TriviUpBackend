@@ -14,6 +14,21 @@ public record AuthorizationCode(
     DateTimeOffset ExpiresAt
 );
 
+/// <summary>Correlación de un solo uso (5 min) para el viaje de ida y vuelta por Google: guarda
+/// la petición OAuth original (de claude.ai u otro cliente) mientras el usuario está en
+/// accounts.google.com, ya que el 'state' de Google lo usa internamente TriviUpBackend para su
+/// propio returnUrl y no podemos reutilizarlo para nuestro propio state.</summary>
+public record PendingGoogleLogin(
+    string ClientId,
+    string RedirectUri,
+    string CodeChallenge,
+    string? State,
+    DateTimeOffset ExpiresAt
+);
+
+/// <summary>URL base del backend de TriviUp, para construir el link a /Auth/google.</summary>
+public record TriviUpBackendOptions(string BaseUrl);
+
 // ---- DTOs de las peticiones/respuestas HTTP ----
 
 public record ClientRegistrationRequest(

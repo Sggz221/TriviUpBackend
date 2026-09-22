@@ -12,6 +12,7 @@ public class OAuthStore
 {
     private readonly ConcurrentDictionary<string, ClientRegistration> _clients = new();
     private readonly ConcurrentDictionary<string, AuthorizationCode> _codes = new();
+    private readonly ConcurrentDictionary<string, PendingGoogleLogin> _pendingGoogleLogins = new();
 
     public ClientRegistration RegisterClient(List<string> redirectUris, string clientName)
     {
@@ -37,6 +38,20 @@ public class OAuthStore
     public AuthorizationCode? TryConsumeCode(string code)
     {
         if (!_codes.TryRemove(code, out var value)) return null;
+        return value.ExpiresAt > DateTimeOffset.UtcNow ? value : null;
+    }
+
+    public string StorePendingGoogleLogin(PendingGoogleLogin pending)
+    {
+        var nonce = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        _pendingGoogleLogins[nonce] = pending;
+        return nonce;
+    }
+
+    /// <summary>Recupera y BORRA la petición pendiente (de un solo uso). Null si no existe o ya caducó.</summary>
+    public PendingGoogleLogin? TryConsumePendingGoogleLogin(string nonce)
+    {
+        if (!_pendingGoogleLogins.TryRemove(nonce, out var value)) return null;
         return value.ExpiresAt > DateTimeOffset.UtcNow ? value : null;
     }
 }

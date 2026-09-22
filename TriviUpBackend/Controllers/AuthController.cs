@@ -2,6 +2,7 @@ using CSharpFunctionalExtensions;
 using Google.Apis.Auth;
 using Google.Apis.Util;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
 using TriviUpBackend.DTO.User;
 using TriviUpBackend.Errors;
 using TriviUpBackend.Services.Auth;
@@ -172,6 +173,23 @@ public class AuthController(
 
             logger.LogInformation("Google OAuth success. Redirecting to frontend with user: {UserJson}", userJson);
 
+            // Si venimos de un cliente de terceros (p.ej. el conector MCP) que pasó su propio
+            // returnUrl en /Auth/google, y ese returnUrl está en el allowlist, se redirige ahí
+            // en vez de al frontend. Por defecto (sin OAUTH_GOOGLE_RETURN_URLS configurada) el
+            // allowlist está vacío y este bloque nunca aplica: cero cambio de comportamiento
+            // para el login normal de la web, que nunca manda returnUrl.
+            var returnUrl = DecodeReturnUrl(state);
+            if (returnUrl is not null && IsAllowedReturnUrl(returnUrl))
+            {
+                var bridgeRedirectUrl = QueryHelpers.AddQueryString(returnUrl, new Dictionary<string, string?>
+                {
+                    ["token"] = response.Token,
+                    ["user"] = userJson
+                });
+                logger.LogInformation("Google OAuth success. Redirecting to allowlisted returnUrl.");
+                return Redirect(bridgeRedirectUrl);
+            }
+
             // Always redirect to frontend callback with token and user
             var frontendUrl = Environment.GetEnvironmentVariable("FRONTEND_URL")
                 ?? throw new InvalidOperationException("FRONTEND_URL no configurada");
@@ -189,6 +207,48 @@ public class AuthController(
             logger.LogError(ex, "Error en callback de Google OAuth");
             return StatusCode(500, new { message = "Error interno del servidor" });
         }
+    }
+
+    /// <summary>Decodifica el returnUrl que GoogleLogin metió en base64 dentro de state. Null si
+    /// state está vacío o no es un base64 válido (nunca revienta el flujo por un state corrupto).</summary>
+    private static string? DecodeReturnUrl(string? state)
+    {
+        if (string.IsNullOrEmpty(state)) return null;
+
+        try
+        {
+            return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(state));
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Solo se sigue un returnUrl si coincide exactamente (scheme+host+puerto+path) con
+    /// alguno de OAUTH_GOOGLE_RETURN_URLS (separados por comas). Vacía por defecto -&gt; ningún
+    /// returnUrl se acepta nunca, fail-closed.</summary>
+    private static bool IsAllowedReturnUrl(string returnUrl)
+    {
+        if (!Uri.TryCreate(returnUrl, UriKind.Absolute, out var uri)) return false;
+
+        var allowedRaw = Environment.GetEnvironmentVariable("OAUTH_GOOGLE_RETURN_URLS") ?? "";
+        var allowed = allowedRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var candidate in allowed)
+        {
+            if (!Uri.TryCreate(candidate, UriKind.Absolute, out var allowedUri)) continue;
+
+            if (string.Equals(uri.Scheme, allowedUri.Scheme, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(uri.Host, allowedUri.Host, StringComparison.OrdinalIgnoreCase) &&
+                uri.Port == allowedUri.Port &&
+                string.Equals(uri.AbsolutePath, allowedUri.AbsolutePath, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private string BuildGoogleCallbackUri(string? returnUrl)
