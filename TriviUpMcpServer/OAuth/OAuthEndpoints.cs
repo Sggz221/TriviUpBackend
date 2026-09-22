@@ -309,11 +309,16 @@ public static class OAuthEndpoints
 
         // Los valores del botón de Google van en una URL (href), no en <input hidden>, así que
         // además de HtmlEncoder hace falta Uri.EscapeDataString para que sobrevivan como query string.
+        // response_type y code_challenge_method son fijos ("code"/"S256", los únicos que
+        // aceptamos): si llegamos hasta aquí es porque /authorize ya los validó, así que se
+        // pueden fijar directamente sin tener que ir arrastrando esos dos parámetros más.
         var googleStartUrl = "/oauth/google/start"
-            + $"?client_id={Uri.EscapeDataString(clientId)}"
+            + "?response_type=code"
+            + $"&client_id={Uri.EscapeDataString(clientId)}"
             + $"&redirect_uri={Uri.EscapeDataString(redirectUri)}"
             + $"&state={Uri.EscapeDataString(state ?? "")}"
-            + $"&code_challenge={Uri.EscapeDataString(codeChallenge)}";
+            + $"&code_challenge={Uri.EscapeDataString(codeChallenge)}"
+            + "&code_challenge_method=S256";
 
         return $$"""
             <!DOCTYPE html>
