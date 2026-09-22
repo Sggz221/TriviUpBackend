@@ -23,6 +23,30 @@ public class TriviUpApiClient(HttpClient httpClient, AuthSessionState session)
         return await ReadOrThrowAsync<UserDto>(response, ct);
     }
 
+    /// <summary>Valida un JWT arbitrario y devuelve el usuario, sin pasar por AuthSessionState.
+    /// Usado por el "resource server" OAuth: cada request al conector remoto trae su propio
+    /// token en la cabecera Authorization, no el guardado por la tool 'login'.</summary>
+    public async Task<UserDto> GetMeWithTokenAsync(string jwt, CancellationToken ct)
+    {
+        var response = await SendWithExplicitTokenAsync(HttpMethod.Get, "Users/me", jwt, ct);
+        return await ReadOrThrowAsync<UserDto>(response, ct);
+    }
+
+    /// <summary>Renueva un JWT todavía válido (POST /Auth/refresh) sin pasar por AuthSessionState.
+    /// Usado por el grant "refresh_token" del Authorization Server OAuth.</summary>
+    public async Task<AuthResponse> RefreshAsync(string jwt, CancellationToken ct)
+    {
+        var response = await SendWithExplicitTokenAsync(HttpMethod.Post, "Auth/refresh", jwt, ct);
+        return await ReadOrThrowAsync<AuthResponse>(response, ct);
+    }
+
+    private async Task<HttpResponseMessage> SendWithExplicitTokenAsync(HttpMethod method, string url, string jwt, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(method, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
+        return await httpClient.SendAsync(request, ct);
+    }
+
     public async Task<BancoCategoriasResponse> ListCategoriasAsync(CancellationToken ct)
     {
         var response = await SendAuthorizedAsync(HttpMethod.Get, "api/banco-categorias", null, ct);

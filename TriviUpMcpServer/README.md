@@ -26,6 +26,39 @@ propio scope de request nuevo, así que un servicio Scoped normal NO persiste en
 el `Mcp-Session-Id` sea el mismo. Por eso `AuthSessionState` es una fachada fina sobre el singleton
 `SessionAuthStore`, no un simple `AddScoped<AuthSessionState>()` como en el host stdio.
 
+## OAuth (carpeta `OAuth/`)
+
+claude.ai exige que un "custom connector" hable OAuth para registrarse y autenticar (metadata +
+registro dinámico de cliente + Authorization Code con PKCE) — sin esto, el botón "Add custom
+connector" falla con un error genérico de "couldn't register with the sign-in service" antes
+siquiera de intentar conectar. Este proyecto implementa el mínimo Authorization Server necesario
+para eso, haciendo de puente hacia el login/JWT que ya tiene TriviUp:
+
+| Endpoint | Qué hace |
+|---|---|
+| `GET /.well-known/oauth-protected-resource` | RFC 9728: le dice al cliente dónde está el Authorization Server. |
+| `GET /.well-known/oauth-authorization-server` | RFC 8414: endpoints, grants y métodos soportados. |
+| `POST /register` | RFC 7591: registro dinámico de cliente (público, sin `client_secret`). |
+| `GET /authorize` | Formulario HTML de login (usuario/contraseña de TriviUp). |
+| `POST /authorize` | Valida contra `POST /Auth/signin` de TriviUp; si es correcto, redirige con un `code`. |
+| `POST /token` | Canjea `code` (+ PKCE `code_verifier`) o `refresh_token` por un access token. |
+
+**Decisión clave que simplifica todo lo demás:** el `access_token` que emitimos **es literalmente
+el JWT de TriviUp** — no hay un token opaco propio que mantener sincronizado. Cada request a `/mcp`
+se valida llamando a `GET /Users/me` de TriviUp con ese mismo Bearer
+(`TriviUpBearerAuthenticationHandler`); si es válido, esa llamada también siembra
+`SessionAuthStore` para la sesión MCP actual, así que las tools ven al usuario ya autenticado sin
+necesidad de llamar a `login` (aunque `login` se deja disponible por si alguien quiere cambiar de
+cuenta a mitad de conversación). El `refresh_token` grant llama a `POST /Auth/refresh` de TriviUp;
+si el JWT ya caducó del todo, la renovación falla y el cliente tiene que volver a pasar por
+`/authorize` — es una limitación aceptada, no un bug.
+
+`/mcp` requiere este Bearer token (`RequireAuthorization()`); sin él, responde `401` con
+`WWW-Authenticate: Bearer resource_metadata="…"` para que el cliente arranque el flujo OAuth solo.
+
+**Nunca se guarda la contraseña de TriviUp en ningún sitio** — `/authorize` solo la reenvía, una
+vez, a `POST /Auth/signin`.
+
 ## Configuración
 
 | Variable | Descripción |
@@ -34,13 +67,15 @@ el `Mcp-Session-Id` sea el mismo. Por eso `AuthSessionState` es una fachada fina
 
 ## Endpoints
 
-- `POST/GET /mcp` — Streamable HTTP transport (lo que registra el cliente MCP).
-- `GET /health` — healthcheck simple para Railway.
+- `POST/GET /mcp` — Streamable HTTP transport (lo que registra el cliente MCP). Requiere OAuth.
+- `GET /health` — healthcheck simple para Railway (sin auth).
+- Los de OAuth, ver arriba.
 
 ## Cómo lo añade un usuario a su Claude
 
 **claude.ai** (conector remoto): Settings → Connectors → Add custom connector → pega la URL
-`https://<dominio-del-servicio>/mcp`.
+`https://<dominio-del-servicio>/mcp`. claude.ai hace todo el flujo OAuth solo: te enseña el
+formulario de login de TriviUp en una ventana emergente y, tras autenticarte, queda conectado.
 
 **Claude Code**:
 
@@ -60,8 +95,9 @@ claude mcp add --transport http triviup-banco-preguntas https://<dominio-del-ser
 }
 ```
 
-En cualquier caso, el primer paso dentro de la conversación es llamar a la tool `login` con las
-credenciales de TriviUp de esa persona — nadie ve ni puede usar las preguntas de otro usuario.
+En los tres casos, al conectar se abre el login de TriviUp (usuario/contraseña) una sola vez; a
+partir de ahí, cada persona ya está autenticada como su propia cuenta dentro de la conversación —
+no hace falta llamar a la tool `login`, y nadie ve ni puede usar las preguntas de otro usuario.
 
 ## Desarrollo local
 

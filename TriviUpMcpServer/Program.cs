@@ -1,8 +1,10 @@
+using Microsoft.AspNetCore.Authentication;
 using ModelContextProtocol.AspNetCore;
 using TriviUpMcp.Auth;
 using TriviUpMcp.Client;
 using TriviUpMcp.Tools;
 using TriviUpMcpServer;
+using TriviUpMcpServer.OAuth;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,6 +18,7 @@ var apiBaseUrl = Environment.GetEnvironmentVariable("TRIVIUP_API_URL")
 // tanto NO comparte instancias Scoped con las llamadas anteriores de esa misma sesión.
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<SessionAuthStore>();
+builder.Services.AddSingleton<OAuthStore>();
 builder.Services.AddScoped<ISessionKeyProvider, HttpSessionKeyProvider>();
 builder.Services.AddScoped<AuthSessionState>();
 builder.Services.AddHttpClient<TriviUpApiClient>(client =>
@@ -23,28 +26,42 @@ builder.Services.AddHttpClient<TriviUpApiClient>(client =>
     client.BaseAddress = new Uri(apiBaseUrl.TrimEnd('/') + "/");
 });
 
+// Conector protegido por OAuth (ver OAuth/): claude.ai exige que un "custom connector" hable
+// OAuth para registrarse y autenticar, así que /mcp requiere un Bearer token válido -- que ES
+// el JWT de TriviUp obtenido durante /authorize. Con esto, el usuario ya llega autenticado a
+// la conversación y no necesita llamar a la tool 'login' (aunque sigue disponible por si hace
+// falta cambiar de cuenta a mitad de sesión).
+builder.Services
+    .AddAuthentication(TriviUpBearerAuthenticationHandler.SchemeName)
+    .AddScheme<AuthenticationSchemeOptions, TriviUpBearerAuthenticationHandler>(
+        TriviUpBearerAuthenticationHandler.SchemeName, _ => { });
+builder.Services.AddAuthorization();
+
 builder.Services
     .AddMcpServer(options =>
     {
         options.ServerInfo = new() { Name = "triviup-banco-preguntas", Version = "1.0.0" };
         options.ServerInstructions =
-            "Antes de usar cualquier otra tool, llama a 'login' con las credenciales de tu cuenta de TriviUp. " +
-            "El token queda guardado en tu sesión MCP (no se comparte con otros usuarios conectados a este mismo servidor). " +
+            "El usuario ya está autenticado como su cuenta de TriviUp (OAuth del conector). " +
+            "Usa 'whoami' si necesitas confirmar quién es. Solo llama a 'login' si el usuario pide " +
+            "explícitamente cambiar de cuenta dentro de la misma conversación. " +
             "Cada pregunta debe tener al menos 2 respuestas y exactamente una marcada como correcta.";
     })
     .WithHttpTransport(options =>
     {
-        // Mantiene el token de 'login' vivo entre llamadas dentro de la misma sesión MCP
-        // (clientes que hacen el handshake 'initialize', que es lo que usan hoy Claude
-        // Desktop/Code/claude.ai). Clientes futuros sin sesión (protocolo 2026-07-28+)
-        // caerían a un contexto nuevo por request y tendrían que hacer login en cada llamada.
+        // Mantiene la sesión (y el token, sembrado por TriviUpBearerAuthenticationHandler en
+        // cada request autenticado) viva entre llamadas dentro de la misma sesión MCP.
         options.SessionMode = HttpServerSessionMode.StatefulForInitializeClients;
     })
     .WithToolsFromAssembly(typeof(AuthTools).Assembly);
 
 var app = builder.Build();
 
-app.MapMcp("/mcp");
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapTriviUpOAuthEndpoints();
+app.MapMcp("/mcp").RequireAuthorization();
 app.MapGet("/health", () => Results.Ok("Healthy"));
 
 app.Run();
