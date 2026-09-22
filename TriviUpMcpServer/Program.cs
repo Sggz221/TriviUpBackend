@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.HttpOverrides;
 using ModelContextProtocol.AspNetCore;
 using TriviUpMcp.Auth;
 using TriviUpMcp.Client;
@@ -16,6 +17,16 @@ var apiBaseUrl = Environment.GetEnvironmentVariable("TRIVIUP_API_URL")
 // Mcp-Session-Id (ver HttpSessionKeyProvider) -- NO en un DI "Scoped" normal, porque cada
 // llamada HTTP dentro de una misma sesión MCP crea su propio scope de ASP.NET Core y por
 // tanto NO comparte instancias Scoped con las llamadas anteriores de esa misma sesión.
+// Railway termina TLS en su proxy y nos reenvía HTTP puro: sin esto, Request.Scheme dentro del
+// contenedor siempre sería "http", y las URLs de metadata OAuth (que se lo pasamos tal cual al
+// cliente) saldrían mal -- con "https" esperado por cualquier cliente OAuth serio.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<SessionAuthStore>();
 builder.Services.AddSingleton<OAuthStore>();
@@ -57,6 +68,7 @@ builder.Services
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
 
