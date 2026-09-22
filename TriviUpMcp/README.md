@@ -1,10 +1,25 @@
 # TriviUpMcp
 
 Servidor [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) que expone el banco
-personal de preguntas de TriviUp (`api/banco-preguntas`, `api/banco-categorias`) como tools para
-agentes de IA. Es un cliente HTTP más de la API existente: no reemplaza ni modifica `TriviUpBackend`,
-solo la envuelve con una interfaz pensada para que un agente cree y mantenga preguntas de forma
-conversacional.
+personal de preguntas y los cuestionarios de TriviUp (`api/banco-preguntas`, `api/banco-categorias`,
+`api/cuestionarios`) como tools para agentes de IA. Es un cliente HTTP más de la API existente: no
+reemplaza ni modifica `TriviUpBackend`, solo la envuelve con una interfaz pensada para que un agente
+cree y mantenga preguntas y cuestionarios de forma conversacional.
+
+## Dos formas de ejecutarlo
+
+Las tools (login, categorías, preguntas del banco, cuestionarios...) viven en **`TriviUpMcp.Core`**,
+una librería compartida por dos hosts distintos según cómo lo quieras usar:
+
+- **Este proyecto (`TriviUpMcp`)** — transporte **stdio**, un proceso local por cliente. Pensado para
+  desarrollo o para que una sola persona lo registre en su propio Claude Desktop/Code apuntando a su
+  copia local del repo. Instrucciones más abajo.
+- **[`TriviUpMcpServer`](../TriviUpMcpServer/README.md)** — transporte **HTTP**, un único servicio
+  desplegado (Railway) que cualquiera con cuenta de TriviUp puede añadir a su Claude pegando una URL,
+  sin instalar nada. Es el que usarías para un "conector personalizado" público. Ver su propio README
+  para cómo registrarlo y cómo se aísla la sesión de cada usuario.
+
+Esta página documenta las tools (comunes a ambos hosts) y el host stdio.
 
 ## Requisitos
 
@@ -18,7 +33,7 @@ El servidor lee la URL base de la API de la variable de entorno `TRIVIUP_API_URL
 usa `http://localhost:5164` (el puerto por defecto de `TriviUpBackend` en desarrollo).
 
 ```bash
-export TRIVIUP_API_URL=https://triviup.up.railway.app
+export TRIVIUP_API_URL=https://triviup-backend-production.up.railway.app
 ```
 
 ## Cómo registrarlo en un cliente MCP

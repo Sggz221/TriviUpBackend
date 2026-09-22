@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TriviUpMcp.Auth;
 using TriviUpMcp.Client;
+using TriviUpMcp.Tools;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -12,7 +13,9 @@ builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogL
 
 var apiBaseUrl = Environment.GetEnvironmentVariable("TRIVIUP_API_URL") ?? "http://localhost:5164";
 
-builder.Services.AddSingleton<AuthSessionState>();
+builder.Services.AddSingleton<SessionAuthStore>();
+builder.Services.AddSingleton<ISessionKeyProvider, StdioSessionKeyProvider>();
+builder.Services.AddScoped<AuthSessionState>();
 builder.Services.AddHttpClient<TriviUpApiClient>(client =>
 {
     client.BaseAddress = new Uri(apiBaseUrl.TrimEnd('/') + "/");
@@ -28,6 +31,6 @@ builder.Services
             "Cada pregunta debe tener al menos 2 respuestas y exactamente una marcada como correcta.";
     })
     .WithStdioServerTransport()
-    .WithToolsFromAssembly();
+    .WithToolsFromAssembly(typeof(AuthTools).Assembly);
 
 await builder.Build().RunAsync();

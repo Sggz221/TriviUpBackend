@@ -1,0 +1,22 @@
+# Usado por el build de TriviUpMcpServer (su "root directory" en Railway es la raíz
+# del repo, para poder copiar el proyecto hermano TriviUpMcp.Core). No afecta al build
+# de TriviUpBackend/TriviUpBackend, que tiene su propio .dockerignore con contexto
+# scoped a esa carpeta.
+
+**/bin
+**/obj
+**/.git
+**/.vs
+**/.vscode
+**/*.md
+**/*.pdf
+**/*.suo
+**/*.user
+
+TriviUpBackend/
+TriviUpTest/
+TriviUpE2ETests/
+TriviUpBrunoTest/
+TriviUpMcp/
+bruno/
+.github/
