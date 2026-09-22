@@ -104,6 +104,35 @@ corregir su siguiente llamada sin necesidad de reintentos a ciegas.
 | `anadir_respuesta` | `id`, `texto`, `esCorrecta` → añade una respuesta conservando las existentes. |
 | `marcar_respuesta_correcta` | `id`, y `respuestaIndex` (0-based) o `respuestaTexto` → marca esa respuesta como correcta y desmarca el resto. |
 
+### Cuestionarios (quizzes)
+
+CRUD completo sobre `api/cuestionarios`. Un cuestionario tiene sus propias preguntas (con
+`numeroPregunta`, `respuestas`, `dificultad` y una `fase` opcional para agrupar preguntas por
+bloques) — son independientes de las del banco personal; no hay conversión automática entre unas y
+otras.
+
+| Tool | Descripción |
+|---|---|
+| `crear_cuestionario` | `nombre`, `preguntas` (lista), y opcionalmente `esPublico`, `esBorrador`. |
+| `listar_cuestionarios` | Todos los cuestionarios del sistema, paginado (`page`, `pageSize`). |
+| `listar_mis_cuestionarios` | Cuestionarios creados por el usuario autenticado. |
+| `obtener_cuestionario` | `id` → detalle completo (público). |
+| `obtener_cuestionario_por_codigo` | `gameCode` → detalle completo (público). |
+| `editar_cuestionario` | `id`, `nombre`, `preguntas` (lista completa, sustituye las existentes con ids nuevos), `esPublico` opcional. |
+| `eliminar_cuestionario` | `id` → borra el cuestionario. Solo el creador puede hacerlo. |
+
+Reglas de validación de cada pregunta (`crear_cuestionario`/`editar_cuestionario`, salvo que
+`esBorrador: true`): al menos 2 respuestas con texto y exactamente una correcta; `dificultad` es
+`facil`/`media`/`dificil` o vacía; `faseColor` es `#rrggbb` o vacío; las fases (`faseNumero`) deben
+empezar en 1, ser consecutivas sin huecos, y todas las preguntas de una misma fase deben compartir
+`faseNombre` y `faseColor`.
+
+No hay tools para editar una sola pregunta de un cuestionario suelta: la API solo permite
+reemplazar el cuestionario entero (`editar_cuestionario`), igual que con `editar_pregunta` del
+banco. Tampoco se incluyen aquí las operaciones de borradores/versiones/publicación
+(`.../borrador`, `.../publicar`, `.../versiones`) ni las de descubrimiento público
+(like/unlike/visitas) por no ser estrictamente CRUD — se pueden añadir si se necesitan.
+
 ### Ejemplo: crear una pregunta con una categoría nueva
 
 ```json

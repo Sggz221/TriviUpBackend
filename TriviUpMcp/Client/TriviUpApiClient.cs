@@ -5,7 +5,7 @@ using TriviUpMcp.Auth;
 namespace TriviUpMcp.Client;
 
 /// <summary>
-/// Cliente HTTP tipado para la API REST de TriviUp (Auth, Users, banco de preguntas/categorías).
+/// Cliente HTTP tipado para la API REST de TriviUp (Auth, Users, banco de preguntas/categorías, cuestionarios).
 /// Añade automáticamente el Bearer token de <see cref="AuthSessionState"/> a cada petición
 /// que lo necesite. El MCP se comporta como cualquier cliente externo autenticado.
 /// </summary>
@@ -93,16 +93,72 @@ public class TriviUpApiClient(HttpClient httpClient, AuthSessionState session)
         return await ReadOrThrowAsync<AsignarCategoriaResponse>(response, ct);
     }
 
-    private async Task<HttpResponseMessage> SendAuthorizedAsync(HttpMethod method, string url, object? body, CancellationToken ct)
+    // ---------- Cuestionarios ----------
+
+    public async Task<CuestionarioResponse> CreateCuestionarioAsync(CreateCuestionarioRequest request, CancellationToken ct)
     {
-        var token = session.GetTokenOrNull()
-            ?? throw new TriviUpApiException(401, "No autenticado: usa la tool 'login' antes de llamar a esta tool.");
+        var response = await SendAuthorizedAsync(HttpMethod.Post, "api/cuestionarios", request, ct);
+        return await ReadOrThrowAsync<CuestionarioResponse>(response, ct);
+    }
+
+    public async Task<CuestionarioListPageResponse> ListCuestionariosAsync(int page, int pageSize, CancellationToken ct)
+    {
+        var response = await SendAuthorizedAsync(HttpMethod.Get, $"api/cuestionarios?page={page}&pageSize={pageSize}", null, ct);
+        return await ReadOrThrowAsync<CuestionarioListPageResponse>(response, ct);
+    }
+
+    public async Task<List<CuestionarioResponse>> ListMisCuestionariosAsync(CancellationToken ct)
+    {
+        var response = await SendAuthorizedAsync(HttpMethod.Get, "api/cuestionarios/mis-cuestionarios", null, ct);
+        return await ReadOrThrowAsync<List<CuestionarioResponse>>(response, ct);
+    }
+
+    public async Task<CuestionarioResponse> GetCuestionarioAsync(long id, CancellationToken ct)
+    {
+        var response = await SendPublicAsync(HttpMethod.Get, $"api/cuestionarios/{id}", null, ct);
+        return await ReadOrThrowAsync<CuestionarioResponse>(response, ct);
+    }
+
+    public async Task<CuestionarioResponse> GetCuestionarioPorCodigoAsync(string gameCode, CancellationToken ct)
+    {
+        var response = await SendPublicAsync(HttpMethod.Get, $"api/cuestionarios/gamecode/{Uri.EscapeDataString(gameCode)}", null, ct);
+        return await ReadOrThrowAsync<CuestionarioResponse>(response, ct);
+    }
+
+    public async Task<CuestionarioResponse> UpdateCuestionarioAsync(long id, UpdateCuestionarioRequest request, CancellationToken ct)
+    {
+        var response = await SendAuthorizedAsync(HttpMethod.Put, $"api/cuestionarios/{id}", request, ct);
+        return await ReadOrThrowAsync<CuestionarioResponse>(response, ct);
+    }
+
+    public async Task DeleteCuestionarioAsync(long id, CancellationToken ct)
+    {
+        var response = await SendAuthorizedAsync(HttpMethod.Delete, $"api/cuestionarios/{id}", null, ct);
+        await EnsureSuccessAsync(response, ct);
+    }
+
+    private Task<HttpResponseMessage> SendAuthorizedAsync(HttpMethod method, string url, object? body, CancellationToken ct) =>
+        SendAsync(method, url, body, requireAuth: true, ct);
+
+    private Task<HttpResponseMessage> SendPublicAsync(HttpMethod method, string url, object? body, CancellationToken ct) =>
+        SendAsync(method, url, body, requireAuth: false, ct);
+
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, object? body, bool requireAuth, CancellationToken ct)
+    {
+        var token = session.GetTokenOrNull();
+        if (requireAuth && token is null)
+        {
+            throw new TriviUpApiException(401, "No autenticado: usa la tool 'login' antes de llamar a esta tool.");
+        }
 
         using var request = new HttpRequestMessage(method, url)
         {
             Content = body is null ? null : JsonContent.Create(body)
         };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (token is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
 
         return await httpClient.SendAsync(request, ct);
     }

@@ -82,3 +82,80 @@ public record BancoCategoriasResponse(
 public record ApiErrorBody(
     [property: JsonPropertyName("message")] string? Message
 );
+
+// ---------- Cuestionarios (api/cuestionarios, api/quizzes) ----------
+// Ver TriviUpBackend/Cuestionarios/DTOs/CreateQuizRequest.cs, UpdateQuizRequest.cs, QuizResponse.cs, PublicQuizResponse.cs.
+
+public record RespuestaCuestionarioInput(
+    [property: JsonPropertyName("texto")] string Texto,
+    [property: JsonPropertyName("esCorrecta")] bool EsCorrecta = false
+);
+
+/// <summary>
+/// Pregunta de un cuestionario en creación o edición. Tanto crear como editar reemplazan las
+/// preguntas por completo (la API las recrea con ids nuevos cada vez), por eso no lleva Id.
+/// </summary>
+public record PreguntaCuestionarioInput(
+    [property: JsonPropertyName("numeroPregunta")] int NumeroPregunta,
+    [property: JsonPropertyName("enunciado")] string Enunciado,
+    [property: JsonPropertyName("respuestas")] List<RespuestaCuestionarioInput> Respuestas,
+    [property: JsonPropertyName("imagenUrl")] string? ImagenUrl = null,
+    [property: JsonPropertyName("dificultad")] string? Dificultad = null,
+    [property: JsonPropertyName("faseNumero")] int FaseNumero = 1,
+    [property: JsonPropertyName("faseNombre")] string? FaseNombre = null,
+    [property: JsonPropertyName("faseColor")] string? FaseColor = null
+);
+
+public record CreateCuestionarioRequest(
+    [property: JsonPropertyName("nombre")] string Nombre,
+    [property: JsonPropertyName("preguntas")] List<PreguntaCuestionarioInput> Preguntas,
+    [property: JsonPropertyName("esPublico")] bool EsPublico = false,
+    [property: JsonPropertyName("esBorrador")] bool EsBorrador = false
+);
+
+/// <summary><see cref="EsPublico"/> null = no cambiarlo.</summary>
+public record UpdateCuestionarioRequest(
+    [property: JsonPropertyName("nombre")] string Nombre,
+    [property: JsonPropertyName("preguntas")] List<PreguntaCuestionarioInput> Preguntas,
+    [property: JsonPropertyName("esPublico")] bool? EsPublico = null,
+    [property: JsonPropertyName("esBorrador")] bool EsBorrador = false
+);
+
+public record RespuestaCuestionarioResponse(
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("texto")] string Texto,
+    [property: JsonPropertyName("esCorrecta")] bool EsCorrecta
+);
+
+public record PreguntaCuestionarioResponse(
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("numeroPregunta")] int NumeroPregunta,
+    [property: JsonPropertyName("enunciado")] string Enunciado,
+    [property: JsonPropertyName("imagenUrl")] string? ImagenUrl,
+    [property: JsonPropertyName("faseNumero")] int FaseNumero,
+    [property: JsonPropertyName("faseNombre")] string? FaseNombre,
+    [property: JsonPropertyName("faseColor")] string? FaseColor,
+    [property: JsonPropertyName("dificultad")] string? Dificultad,
+    [property: JsonPropertyName("respuestas")] List<RespuestaCuestionarioResponse> Respuestas
+);
+
+public record CuestionarioResponse(
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("nombre")] string Nombre,
+    [property: JsonPropertyName("gameCode")] string GameCode,
+    [property: JsonPropertyName("esPublico")] bool EsPublico,
+    [property: JsonPropertyName("esBorrador")] bool EsBorrador,
+    [property: JsonPropertyName("version")] int Version,
+    [property: JsonPropertyName("tieneBorrador")] bool TieneBorrador,
+    [property: JsonPropertyName("preguntas")] List<PreguntaCuestionarioResponse> Preguntas,
+    [property: JsonPropertyName("creatorId")] long CreatorId,
+    [property: JsonPropertyName("fechaCreacion")] DateTime FechaCreacion,
+    [property: JsonPropertyName("fechaActualizacion")] DateTime FechaActualizacion
+);
+
+public record CuestionarioListPageResponse(
+    [property: JsonPropertyName("quizzes")] List<CuestionarioResponse> Quizzes,
+    [property: JsonPropertyName("totalCount")] int TotalCount,
+    [property: JsonPropertyName("page")] int Page,
+    [property: JsonPropertyName("pageSize")] int PageSize
+);
