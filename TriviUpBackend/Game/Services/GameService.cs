@@ -34,7 +34,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <inheritdoc />
-    public async Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId, int? turnTimeLimitSeconds = null)
+    public async Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId, int? turnTimeLimitSeconds = null, GameMode mode = GameMode.Normal)
     {
         _logger.LogInformation("Creating game room for quiz {QuizId} by owner {OwnerId} ({Username})", quizId, ownerId, username);
 
@@ -56,7 +56,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 QuizId = quizId,
                 QuizTitle = quizTitle,
                 OwnerId = ownerId,
-                TurnTimeLimitSeconds = NormalizeTurnTimeLimit(turnTimeLimitSeconds),
+                // En persona el anfitrión marca y confirma a su ritmo: nunca hay tiempo por turno.
+                TurnTimeLimitSeconds = mode == GameMode.Presencial ? 0 : NormalizeTurnTimeLimit(turnTimeLimitSeconds),
+                Mode = mode,
                 State = GameState.Waiting,
                 Players =
                 [
@@ -429,6 +431,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         var session = await _store.GetAsync(roomCode);
         if (session is null || session.State != GameState.Playing) return null;
 
+        // En modo presencial solo responde el anfitrión (MarkAnswer + ConfirmAnswer).
+        if (session.Mode == GameMode.Presencial) return null;
+
         if (session.GetAnsweringPlayerId() != userId)
         {
             _logger.LogWarning("User {UserId} attempted to answer but it's not their turn in room {RoomCode}", userId, roomCode);
@@ -453,12 +458,95 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         var remainingSeconds = GetVisibleRemainingSeconds(session);
         await _store.ClearDeadlineAsync(roomCode);
 
+        var isCorrect = IsCorrectAnswer(question, answerIndex);
+        return await ResolveAnswerAsync(session, player, question, isCorrect, remainingSeconds, timedOut: false);
+    }
+
+    private static bool IsCorrectAnswer(QuestionSnapshot question, int answerIndex)
+    {
         var correctAnswer = question.Respuestas.FirstOrDefault(r => r.EsCorrecta);
         var selectedAnswer = question.Respuestas[answerIndex];
-        var isCorrect = correctAnswer != null &&
-                        string.Equals(correctAnswer.Texto, selectedAnswer.Texto, StringComparison.OrdinalIgnoreCase);
+        return correctAnswer != null &&
+               string.Equals(correctAnswer.Texto, selectedAnswer.Texto, StringComparison.OrdinalIgnoreCase);
+    }
 
-        return await ResolveAnswerAsync(session, player, question, isCorrect, remainingSeconds, timedOut: false);
+    /// <inheritdoc />
+    public async Task<Result> MarkAnswerAsync(string roomCode, long ownerId, long questionId, int? answerIndex)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        var check = CheckHostCanAnswer(session, ownerId, questionId);
+        if (check.IsFailure) return check;
+
+        var question = session!.Questions[session.CurrentQuestionIndex];
+        if (answerIndex is { } index &&
+            (index < 0 || index >= question.Respuestas.Count || session.EliminatedAnswerIndexes.Contains(index)))
+        {
+            return Result.Failure("Esa respuesta no se puede marcar.");
+        }
+
+        session.MarkedAnswerIndex = answerIndex;
+        await _store.SaveAsync(session);
+        await BroadcastAnswerMarkedAsync(session);
+        return Result.Success();
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<TurnResultDto>> ConfirmAnswerAsync(string roomCode, long ownerId, long questionId)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure<TurnResultDto>("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        var check = CheckHostCanAnswer(session, ownerId, questionId);
+        if (check.IsFailure) return Result.Failure<TurnResultDto>(check.Error);
+
+        if (session!.MarkedAnswerIndex is not { } answerIndex)
+        {
+            return Result.Failure<TurnResultDto>("Marca una respuesta antes de confirmarla.");
+        }
+
+        var player = session.Players.FirstOrDefault(p => p.UserId == session.GetAnsweringPlayerId());
+        if (player is null) return Result.Failure<TurnResultDto>("No hay ningún jugador respondiendo.");
+
+        var question = session.Questions[session.CurrentQuestionIndex];
+        var result = await ResolveAnswerAsync(session, player, question, IsCorrectAnswer(question, answerIndex),
+            remainingSeconds: 0, timedOut: false);
+        return Result.Success(result);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result> NextQuestionAsync(string roomCode, long ownerId)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        if (session is null) return Result.Failure("Room not found.");
+        if (session.OwnerId != ownerId) return Result.Failure("Solo el anfitrión puede pasar de pregunta.");
+        if (session.State != GameState.Playing) return Result.Failure("La partida no está en juego.");
+        if (!session.AwaitingNextQuestion) return Result.Failure("Todavía no se ha confirmado la respuesta.");
+
+        await AdvanceToNextTurnAsync(session);
+        return Result.Success();
+    }
+
+    /// <summary>Validaciones comunes para que el anfitrión marque o confirme en modo presencial.</summary>
+    private static Result CheckHostCanAnswer(GameSessionDocument? session, long ownerId, long questionId)
+    {
+        if (session is null) return Result.Failure("Room not found.");
+        if (session.Mode != GameMode.Presencial) return Result.Failure("Solo disponible en modo presencial.");
+        if (session.OwnerId != ownerId) return Result.Failure("Solo el anfitrión puede marcar respuestas.");
+        if (session.State != GameState.Playing) return Result.Failure("La partida no está en juego.");
+        if (session.AwaitingNextQuestion) return Result.Failure("La respuesta ya está confirmada.");
+        if (session.CurrentQuestionIndex >= session.Questions.Count ||
+            session.Questions[session.CurrentQuestionIndex].Id != questionId)
+        {
+            return Result.Failure("La pregunta ya ha cambiado.");
+        }
+        return Result.Success();
     }
 
     /// <summary>
@@ -519,6 +607,17 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             IsSteal: isSteal, DoubleOrNothing: doubleOrNothing, Bets: bets);
 
         await BroadcastTurnOutcomeAsync(session.RoomCode, turnResult, timedOut);
+
+        if (session.Mode == GameMode.Presencial)
+        {
+            // El resultado se queda en pantalla hasta que el anfitrión pase de pregunta (NextQuestion).
+            session.AwaitingNextQuestion = true;
+            session.MarkedAnswerIndex = null;
+            session.LastTurnResult = turnResult;
+            await _store.SaveAsync(session);
+            return turnResult;
+        }
+
         await AdvanceToNextTurnAsync(session);
         return turnResult;
     }
@@ -562,6 +661,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     private async Task RestartCurrentTurnAsync(GameSessionDocument session)
     {
         session.StealActive = false;
+        session.MarkedAnswerIndex = null;
         session.TurnStartedAt = DateTime.UtcNow;
         session.TurnGeneration++;
         await _store.ClearDeadlineAsync(session.RoomCode);
@@ -582,6 +682,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         if (session.State != GameState.Playing)
         {
             return Result.Failure<ComodinUsedDto>("Los comodines solo se pueden usar con la partida en juego.");
+        }
+
+        if (session.AwaitingNextQuestion)
+        {
+            return Result.Failure<ComodinUsedDto>("La respuesta ya está confirmada.");
         }
 
         var player = session.Players.FirstOrDefault(p => p.UserId == userId);
@@ -620,6 +725,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         int? ruletaResultado = null;
         int? ruletaHueco = null;
         long? stolenFrom = null;
+        var unmarked = false;
 
         switch (tipo)
         {
@@ -633,6 +739,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 eliminated = candidates.OrderBy(_ => Random.Shared.Next()).Take(valor).OrderBy(i => i).ToList();
                 ruletaResultado = eliminated.Count;
                 session.EliminatedAnswerIndexes.AddRange(eliminated);
+                if (session.MarkedAnswerIndex is { } marked && eliminated.Contains(marked))
+                {
+                    session.MarkedAnswerIndex = null;
+                    unmarked = true;
+                }
 
                 // El giro no descuenta tiempo: el plazo del turno se alarga lo que dura la animación.
                 if (session.TurnDeadlineUnixMs.HasValue)
@@ -657,6 +768,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 stolenFrom = turnOwnerId;
                 session.StolenById = userId;
                 session.StealActive = true;
+                // Ahora responde el ladrón: lo que hubiera marcado el anfitrión ya no vale.
+                session.MarkedAnswerIndex = null;
                 break;
             case ComodinTipo.Apuesta:
                 if (predictsCorrect is null)
@@ -686,6 +799,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         {
             var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
             await hubContext.Clients.Group(roomCode).SendAsync("ComodinUsed", dto);
+        }
+
+        if (unmarked)
+        {
+            await BroadcastAnswerMarkedAsync(session);
         }
 
         if (tipo == ComodinTipo.Robo)
@@ -1169,7 +1287,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.State.ToString(),
             players,
             session.CurrentQuestionIndex,
-            session.Questions.Count);
+            session.Questions.Count,
+            session.Mode.ToString());
 
         TurnStartedDto? turn = null;
         if (session.State != GameState.PhaseBreak)
@@ -1189,7 +1308,10 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
 
         var phaseBreak = session.State == GameState.PhaseBreak ? BuildPhaseCompleted(session) : null;
-        return new RejoinStateDto(gameState, turn, session.State == GameState.Paused, phaseBreak);
+        // HostInfo lleva la respuesta correcta: el hub solo se la reenvía al anfitrión.
+        var hostInfo = turn is not null ? BuildHostQuestionInfo(session) : null;
+        var lastResult = turn is not null && session.AwaitingNextQuestion ? session.LastTurnResult : null;
+        return new RejoinStateDto(gameState, turn, session.State == GameState.Paused, phaseBreak, hostInfo, lastResult);
     }
 
     /// <summary>Valida el tiempo por turno: null = por defecto, 0 = sin tiempo, resto entre 5 y 120 s.</summary>
@@ -1266,8 +1388,28 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.EliminatedAnswerIndexes.ToList(),
             session.DoubleOrNothingPlayers.ToList(),
             session.Bets.Select(b => new BetDto(b.UserId, b.PredictsCorrect)).ToList(),
-            session.StolenById
+            session.StolenById,
+            session.Mode.ToString(),
+            session.MarkedAnswerIndex
         );
+    }
+
+    /// <summary>Respuesta correcta de la pregunta en curso para el anfitrión (null si no es modo presencial).</summary>
+    private static HostQuestionInfoDto? BuildHostQuestionInfo(GameSessionDocument session)
+    {
+        if (session.Mode != GameMode.Presencial || session.CurrentQuestionIndex >= session.Questions.Count) return null;
+
+        var question = session.Questions[session.CurrentQuestionIndex];
+        return new HostQuestionInfoDto(question.Id, question.Respuestas.FindIndex(r => r.EsCorrecta));
+    }
+
+    private async Task BroadcastAnswerMarkedAsync(GameSessionDocument session)
+    {
+        var questionId = session.Questions[session.CurrentQuestionIndex].Id;
+        using var scope = _scopeFactory.CreateScope();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+        await hubContext.Clients.Group(session.RoomCode).SendAsync("AnswerMarked",
+            new AnswerMarkedDto(questionId, session.MarkedAnswerIndex));
     }
 
     private async Task BroadcastTurnStartedAsync(GameSessionDocument session)
@@ -1278,6 +1420,14 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         using var scope = _scopeFactory.CreateScope();
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
         await hubContext.Clients.Group(session.RoomCode).SendAsync("TurnStarted", turnStartedDto);
+
+        // La respuesta correcta solo le llega al anfitrión, nunca al grupo.
+        var hostInfo = BuildHostQuestionInfo(session);
+        var owner = session.Players.FirstOrDefault(p => p.UserId == session.OwnerId);
+        if (hostInfo is not null && !string.IsNullOrEmpty(owner?.ConnectionId))
+        {
+            await hubContext.Clients.Client(owner.ConnectionId).SendAsync("HostQuestionInfo", hostInfo);
+        }
     }
 
     private async Task BroadcastTurnOutcomeAsync(string roomCode, TurnResultDto turnResult, bool timedOut)

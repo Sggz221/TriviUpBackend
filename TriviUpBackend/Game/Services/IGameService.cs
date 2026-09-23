@@ -17,8 +17,9 @@ public interface IGameService
     /// <param name="ownerId">ID del usuario que crea la sala.</param>
     /// <param name="username">Nombre de usuario del propietario.</param>
     /// <param name="connectionId">ID de conexión SignalR del propietario.</param>
+    /// <param name="mode">Modo de juego; el presencial siempre es sin tiempo.</param>
     /// <returns>Código de la sala creada.</returns>
-    Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId, int? turnTimeLimitSeconds = null);
+    Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId, int? turnTimeLimitSeconds = null, GameMode mode = GameMode.Normal);
 
     /// <summary>
     /// Une a un jugador a una sala existente.
@@ -71,6 +72,23 @@ public interface IGameService
     /// <param name="questionId">Pregunta sobre la que se usa (descarta clics tardíos).</param>
     /// <param name="predictsCorrect">Solo Apuesta: true si apuesta a que el jugador en turno acierta.</param>
     Task<Result<ComodinUsedDto>> UseComodinAsync(string roomCode, long userId, ComodinTipo tipo, long questionId, bool? predictsCorrect = null);
+
+    /// <summary>
+    /// Modo presencial: el anfitrión marca (o desmarca con null) la opción que ha dicho quien
+    /// responde. No puntúa: la marca se difunde a la sala y se puede cambiar hasta confirmarla.
+    /// </summary>
+    Task<Result> MarkAnswerAsync(string roomCode, long ownerId, long questionId, int? answerIndex);
+
+    /// <summary>
+    /// Modo presencial: el anfitrión confirma la opción marcada. Se puntúa a quien responde y el
+    /// resultado queda en pantalla hasta que el anfitrión pase de pregunta.
+    /// </summary>
+    Task<Result<TurnResultDto>> ConfirmAnswerAsync(string roomCode, long ownerId, long questionId);
+
+    /// <summary>
+    /// Modo presencial: el anfitrión pasa a la siguiente pregunta tras ver el resultado.
+    /// </summary>
+    Task<Result> NextQuestionAsync(string roomCode, long ownerId);
 
     /// <summary>
     /// Pausa la partida. Solo el propietario puede pausar.

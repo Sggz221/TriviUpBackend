@@ -32,7 +32,8 @@ public record GameStateDto(
     string State,
     List<PlayerDto> Players,
     int CurrentQuestionIndex,
-    int TotalQuestions
+    int TotalQuestions,
+    string Mode = "Normal"
 );
 
 /// <summary>
@@ -134,7 +135,9 @@ public record RejoinStateDto(
     GameStateDto GameState,
     TurnStartedDto? Turn,
     bool Paused,
-    PhaseCompletedDto? PhaseBreak = null
+    PhaseCompletedDto? PhaseBreak = null,
+    HostQuestionInfoDto? HostInfo = null,
+    TurnResultDto? LastTurnResult = null
 );
 
 /// <summary>
@@ -154,7 +157,25 @@ public record TurnStartedDto(
     List<int>? EliminatedAnswerIndexes = null,
     List<long>? DoubleOrNothingPlayers = null,
     List<BetDto>? Bets = null,
-    long? StolenById = null
+    long? StolenById = null,
+    string Mode = "Normal",
+    int? MarkedAnswerIndex = null
+);
+
+/// <summary>
+/// Modo presencial: opción marcada por el anfitrión (null = desmarcada), difundida a toda la sala.
+/// </summary>
+public record AnswerMarkedDto(
+    long QuestionId,
+    int? AnswerIndex
+);
+
+/// <summary>
+/// Modo presencial: respuesta correcta de la pregunta en curso. Solo se envía al anfitrión.
+/// </summary>
+public record HostQuestionInfoDto(
+    long QuestionId,
+    int CorrectAnswerIndex
 );
 
 /// <summary>

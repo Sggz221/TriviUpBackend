@@ -1,3 +1,4 @@
+using TriviUpBackend.Game.DTOs;
 using TriviUpBackend.Game.Models;
 
 namespace TriviUpBackend.Game.Persistence;
@@ -28,6 +29,19 @@ public sealed class GameSessionDocument
     /// <summary>Segundos por turno elegidos al crear la sala. null = valor por defecto; 0 = sin tiempo.</summary>
     public int? TurnTimeLimitSeconds { get; set; }
 
+    public GameMode Mode { get; set; } = GameMode.Normal;
+
+    // ---- Modo presencial: respuesta de la pregunta en curso (se reinicia en cada pregunta) ----
+
+    /// <summary>Opción marcada por el anfitrión y aún sin confirmar (null = ninguna).</summary>
+    public int? MarkedAnswerIndex { get; set; }
+
+    /// <summary>Respuesta ya confirmada: el resultado está en pantalla hasta que el anfitrión pase de pregunta.</summary>
+    public bool AwaitingNextQuestion { get; set; }
+
+    /// <summary>Resultado de la pregunta confirmada, para reenviarlo a quien se reconecta mientras se espera.</summary>
+    public TurnResultDto? LastTurnResult { get; set; }
+
     // ---- Estado de comodines de la pregunta en curso (se reinicia en cada pregunta) ----
 
     /// <summary>Jugador que robó la pregunta actual (null si nadie). Se mantiene aunque falle el robo.</summary>
@@ -57,6 +71,9 @@ public sealed class GameSessionDocument
         EliminatedAnswerIndexes = new();
         DoubleOrNothingPlayers = new();
         Bets = new();
+        MarkedAnswerIndex = null;
+        AwaitingNextQuestion = false;
+        LastTurnResult = null;
     }
 
     public long? RotateTurn()

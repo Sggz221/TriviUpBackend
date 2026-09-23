@@ -13,6 +13,7 @@ public class GameRoom
     public string QuizTitle { get; set; } = string.Empty;
     public long OwnerId { get; set; }
     public GameState State { get; set; } = GameState.Waiting;
+    public GameMode Mode { get; set; } = GameMode.Normal;
     public List<Player> Players { get; set; } = new();
     public Queue<long> TurnOrder { get; set; } = new();
     public int CurrentQuestionIndex { get; set; }

@@ -97,15 +97,23 @@ public class GameHub : Hub
 
     /// <summary>
     /// Crea una nueva sala de juego. Requiere usuario autenticado.
+    /// <paramref name="mode"/>: "Normal" (por defecto) o "Presencial".
     /// </summary>
-    public async Task<string> CreateGame(long quizId, int? turnTimeLimitSeconds = null)
+    public async Task<string> CreateGame(long quizId, int? turnTimeLimitSeconds = null, string? mode = null)
     {
         var userId = GetAuthenticatedUserId();
         _logger.LogInformation("User {UserId} creating game for quiz {QuizId}", userId, quizId);
 
+        var gameMode = GameMode.Normal;
+        if (!string.IsNullOrEmpty(mode) &&
+            (!Enum.TryParse(mode, ignoreCase: true, out gameMode) || !Enum.IsDefined(gameMode)))
+        {
+            throw new HubException("Modo de juego no válido.");
+        }
+
         var username = GetAuthenticatedUsername(userId);
 
-        var roomCode = await _gameService.CreateGameAsync(quizId, userId, username, Context.ConnectionId, turnTimeLimitSeconds);
+        var roomCode = await _gameService.CreateGameAsync(quizId, userId, username, Context.ConnectionId, turnTimeLimitSeconds, gameMode);
 
         _logger.LogInformation("Game {RoomCode} created by user {UserId}", roomCode, userId);
 
@@ -133,7 +141,8 @@ public class GameHub : Hub
             Players = new List<PlayerDto> { ownerPlayer },
             IsOwner = true,
             MyUserId = userId,
-            MyUsername = username
+            MyUsername = username,
+            Mode = gameMode.ToString()
         });
 
         _logger.LogInformation("Broadcasted GameCreated event to group {RoomCode}", roomCode);
@@ -209,6 +218,15 @@ public class GameHub : Hub
             {
                 await Clients.Caller.SendAsync("TurnStarted", rejoin.Turn);
             }
+            // La respuesta correcta (modo presencial) solo se le reenvía al anfitrión.
+            if (rejoin.HostInfo is not null && registered?.IsOwner == true)
+            {
+                await Clients.Caller.SendAsync("HostQuestionInfo", rejoin.HostInfo);
+            }
+            if (rejoin.LastTurnResult is not null)
+            {
+                await Clients.Caller.SendAsync("TurnResult", rejoin.LastTurnResult);
+            }
             if (rejoin.PhaseBreak is not null)
             {
                 await Clients.Caller.SendAsync("PhaseCompleted", rejoin.PhaseBreak);
@@ -283,7 +301,8 @@ public class GameHub : Hub
             room.State.ToString(),
             playerDtos,
             room.CurrentQuestionIndex,
-            room.Questions?.Count ?? 0
+            room.Questions?.Count ?? 0,
+            room.Mode.ToString()
         );
 
         await Clients.Group(roomCode).SendAsync("GameStarted", gameStateDto);
@@ -327,6 +346,53 @@ public class GameHub : Hub
         }
 
         return result.Value;
+    }
+
+    /// <summary>
+    /// Modo presencial: el anfitrión marca (o desmarca con null) la respuesta que dice quien responde.
+    /// </summary>
+    public async Task MarkAnswer(string roomCode, long questionId, int? answerIndex)
+    {
+        var userId = GetAuthenticatedUserId();
+
+        var result = await _gameService.MarkAnswerAsync(roomCode, userId, questionId, answerIndex);
+        if (result.IsFailure)
+        {
+            _logger.LogWarning("Failed to mark answer in room {RoomCode} by {UserId}: {Error}", roomCode, userId, result.Error);
+            throw new HubException(result.Error);
+        }
+    }
+
+    /// <summary>
+    /// Modo presencial: el anfitrión confirma la respuesta marcada.
+    /// </summary>
+    public async Task<TurnResultDto> ConfirmAnswer(string roomCode, long questionId)
+    {
+        var userId = GetAuthenticatedUserId();
+
+        var result = await _gameService.ConfirmAnswerAsync(roomCode, userId, questionId);
+        if (result.IsFailure)
+        {
+            _logger.LogWarning("Failed to confirm answer in room {RoomCode} by {UserId}: {Error}", roomCode, userId, result.Error);
+            throw new HubException(result.Error);
+        }
+
+        return result.Value;
+    }
+
+    /// <summary>
+    /// Modo presencial: el anfitrión pasa a la siguiente pregunta tras mostrar el resultado.
+    /// </summary>
+    public async Task NextQuestion(string roomCode)
+    {
+        var userId = GetAuthenticatedUserId();
+
+        var result = await _gameService.NextQuestionAsync(roomCode, userId);
+        if (result.IsFailure)
+        {
+            _logger.LogWarning("Failed to advance question in room {RoomCode} by {UserId}: {Error}", roomCode, userId, result.Error);
+            throw new HubException(result.Error);
+        }
     }
 
     /// <summary>
