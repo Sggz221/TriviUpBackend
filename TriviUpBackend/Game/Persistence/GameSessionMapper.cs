@@ -71,7 +71,8 @@ public static class GameSessionMapper
         IsConnected = player.IsConnected,
         IsOwner = player.IsOwner,
         IsSpectator = player.IsSpectator,
-        JoinedAt = player.JoinedAt
+        JoinedAt = player.JoinedAt,
+        UsedComodines = player.UsedComodines.ToList()
     };
 
     public static Player ToPlayer(PlayerDocument doc) => new()
@@ -86,7 +87,8 @@ public static class GameSessionMapper
         IsConnected = doc.IsConnected,
         IsOwner = doc.IsOwner,
         IsSpectator = doc.IsSpectator,
-        JoinedAt = doc.JoinedAt
+        JoinedAt = doc.JoinedAt,
+        UsedComodines = doc.UsedComodines.ToList()
     };
 
     public static QuestionSnapshot ToQuestionSnapshot(Pregunta pregunta) => new()

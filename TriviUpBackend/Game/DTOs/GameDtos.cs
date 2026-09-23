@@ -47,7 +47,8 @@ public record PlayerDto(
     bool IsCurrentTurn,
     bool IsOwner,
     bool IsConnected,
-    bool IsSpectator = false
+    bool IsSpectator = false,
+    List<string>? AvailableComodines = null
 );
 
 /// <summary>
@@ -58,7 +59,46 @@ public record TurnResultDto(
     bool IsCorrect,
     int CorrectAnswerIndex,
     int PointsEarned,
+    int NewTotalScore,
+    bool IsSteal = false,
+    bool DoubleOrNothing = false,
+    long? ReturnsToPlayerId = null,
+    List<BetResultDto>? Bets = null
+);
+
+/// <summary>
+/// Resultado de una apuesta al resolverse la pregunta. <c>Refunded</c> = anulada (robo acertado) y comodín devuelto.
+/// </summary>
+public record BetResultDto(
+    long UserId,
+    bool PredictsCorrect,
+    bool Won,
+    bool Refunded,
+    int PointsEarned,
     int NewTotalScore
+);
+
+/// <summary>
+/// Apuesta pública hecha sobre el jugador en turno.
+/// </summary>
+public record BetDto(
+    long UserId,
+    bool PredictsCorrect
+);
+
+/// <summary>
+/// Uso de un comodín, difundido a toda la sala.
+/// </summary>
+public record ComodinUsedDto(
+    long UserId,
+    string Username,
+    string Tipo,
+    long QuestionId,
+    List<string> AvailableComodines,
+    List<int>? EliminatedAnswerIndexes = null,
+    int? RuletaResultado = null,
+    bool? PredictsCorrect = null,
+    long? StolenFromPlayerId = null
 );
 
 /// <summary>
@@ -106,7 +146,13 @@ public record TurnStartedDto(
     int FaseNumero = 1,
     string? FaseNombre = null,
     int TotalFases = 1,
-    string? FaseColor = null
+    string? FaseColor = null,
+    long? TurnOwnerId = null,
+    bool IsSteal = false,
+    List<int>? EliminatedAnswerIndexes = null,
+    List<long>? DoubleOrNothingPlayers = null,
+    List<BetDto>? Bets = null,
+    long? StolenById = null
 );
 
 /// <summary>

@@ -177,7 +177,8 @@ public class GameHub : Hub
             false,  // isCurrentTurn
             false,  // isOwner
             true,   // isConnected
-            registered?.IsSpectator ?? false
+            registered?.IsSpectator ?? false,
+            registered?.AvailableComodines()
         );
 
         // Send current players list to the new player first
@@ -190,7 +191,8 @@ public class GameHub : Hub
             false,  // isCurrentTurn - not stored on Player model
             p.IsOwner,
             p.IsConnected,
-            p.IsSpectator
+            p.IsSpectator,
+            p.AvailableComodines()
         )).ToList();
 
         await Clients.Caller.SendAsync("PlayersList", playersList);
@@ -272,7 +274,8 @@ public class GameHub : Hub
             false, // isCurrentTurn
             p.IsOwner,
             p.IsConnected,
-            p.IsSpectator
+            p.IsSpectator,
+            p.AvailableComodines()
         )).ToList();
 
         var gameStateDto = new GameStateDto(
@@ -290,18 +293,40 @@ public class GameHub : Hub
     /// <summary>
     /// Envía una respuesta. Método anónimo con userId como parámetro.
     /// </summary>
-    public async Task<TurnResultDto> SubmitAnswer(string roomCode, long userId, long questionId, int answerIndex, int timeRemaining)
+    public async Task<TurnResultDto> SubmitAnswer(string roomCode, long userId, long questionId, int answerIndex)
     {
         _logger.LogDebug("User {UserId} submitting answer for question {QuestionId} in room {RoomCode}",
             userId, questionId, roomCode);
 
-        var result = await _gameService.SubmitAnswerAsync(roomCode, userId, questionId, answerIndex, timeRemaining);
+        var result = await _gameService.SubmitAnswerAsync(roomCode, userId, questionId, answerIndex);
         if (result == null)
         {
             throw new HubException("Failed to submit answer. It may not be your turn or the room doesn't exist.");
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Usa un comodín (Ruleta, DobleONada, Robo, Apuesta). Método anónimo con userId como parámetro.
+    /// <paramref name="predictsCorrect"/> solo aplica a la Apuesta.
+    /// </summary>
+    public async Task<ComodinUsedDto> UseComodin(string roomCode, long userId, string tipo, long questionId, bool? predictsCorrect = null)
+    {
+        if (!Enum.TryParse<ComodinTipo>(tipo, ignoreCase: true, out var comodin) || !Enum.IsDefined(comodin))
+        {
+            throw new HubException("Comodín no válido.");
+        }
+
+        var result = await _gameService.UseComodinAsync(roomCode, userId, comodin, questionId, predictsCorrect);
+        if (result.IsFailure)
+        {
+            _logger.LogWarning("User {UserId} failed to use comodín {Tipo} in room {RoomCode}: {Error}",
+                userId, comodin, roomCode, result.Error);
+            throw new HubException(result.Error);
+        }
+
+        return result.Value;
     }
 
     /// <summary>

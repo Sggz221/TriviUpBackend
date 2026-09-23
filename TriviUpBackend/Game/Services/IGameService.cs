@@ -58,9 +58,19 @@ public interface IGameService
     /// <param name="userId">ID del usuario.</param>
     /// <param name="questionId">ID de la pregunta.</param>
     /// <param name="answerIndex">Índice de la respuesta seleccionada.</param>
-    /// <param name="timeRemaining">Tiempo restante en segundos.</param>
     /// <returns>Resultado del turno o null si no es válido.</returns>
-    Task<TurnResultDto?> SubmitAnswerAsync(string roomCode, long userId, long questionId, int answerIndex, int timeRemaining);
+    Task<TurnResultDto?> SubmitAnswerAsync(string roomCode, long userId, long questionId, int answerIndex);
+
+    /// <summary>
+    /// Usa un comodín del jugador sobre la pregunta actual. Los de turno (Ruleta, Doble o nada)
+    /// solo los puede usar quien responde; los de fuera de turno (Robo, Apuesta), el resto.
+    /// </summary>
+    /// <param name="roomCode">Código de la sala.</param>
+    /// <param name="userId">ID del jugador.</param>
+    /// <param name="tipo">Comodín a usar.</param>
+    /// <param name="questionId">Pregunta sobre la que se usa (descarta clics tardíos).</param>
+    /// <param name="predictsCorrect">Solo Apuesta: true si apuesta a que el jugador en turno acierta.</param>
+    Task<Result<ComodinUsedDto>> UseComodinAsync(string roomCode, long userId, ComodinTipo tipo, long questionId, bool? predictsCorrect = null);
 
     /// <summary>
     /// Pausa la partida. Solo el propietario puede pausar.

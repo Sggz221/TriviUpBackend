@@ -324,21 +324,21 @@ public class GameServiceTests
     [Fact]
     public async Task SubmitAnswerAsync_RoomNotFound_ReturnsNull()
     {
-        Assert.Null(await _service.SubmitAnswerAsync("NOTFOUND", 100L, 1, 0, 10));
+        Assert.Null(await _service.SubmitAnswerAsync("NOTFOUND", 100L, 1, 0));
     }
 
     [Fact]
     public async Task SubmitAnswerAsync_PlayerNotFound_ReturnsNull()
     {
         var roomCode = await CreatePlayingTestRoom();
-        Assert.Null(await _service.SubmitAnswerAsync(roomCode, 999L, 1, 0, 10));
+        Assert.Null(await _service.SubmitAnswerAsync(roomCode, 999L, 1, 0));
     }
 
     [Fact]
     public async Task SubmitAnswerAsync_NotPlayersTurn_ReturnsNull()
     {
         var roomCode = await CreatePlayingTestRoom();
-        Assert.Null(await _service.SubmitAnswerAsync(roomCode, 100L, 1, 0, 10));
+        Assert.Null(await _service.SubmitAnswerAsync(roomCode, 100L, 1, 0));
     }
 
     [Fact]
@@ -352,7 +352,7 @@ public class GameServiceTests
         var questionId = session.Questions[session.CurrentQuestionIndex].Id;
         var correctIndex = session.Questions[session.CurrentQuestionIndex].Respuestas.FindIndex(r => r.EsCorrecta);
 
-        var result = await _service.SubmitAnswerAsync(roomCode, playerId, questionId, correctIndex, 15);
+        var result = await _service.SubmitAnswerAsync(roomCode, playerId, questionId, correctIndex);
 
         Assert.NotNull(result);
         Assert.Equal(playerId, result.PlayerId);
@@ -364,7 +364,7 @@ public class GameServiceTests
     public async Task SubmitAnswerAsync_IncorrectAnswer_ReturnsTurnResultWithNoPoints()
     {
         var roomCode = await CreatePlayingTestRoom();
-        Assert.Null(await _service.SubmitAnswerAsync(roomCode, 200L, 999, 0, 15));
+        Assert.Null(await _service.SubmitAnswerAsync(roomCode, 200L, 999, 0));
     }
 
     [Fact]
@@ -379,7 +379,7 @@ public class GameServiceTests
         var questionId = sessionBefore.Questions[sessionBefore.CurrentQuestionIndex].Id;
         var indexBefore = sessionBefore.CurrentQuestionIndex;
 
-        var answerTask = _service.SubmitAnswerAsync(roomCode, playerId, questionId, 0, 10);
+        var answerTask = _service.SubmitAnswerAsync(roomCode, playerId, questionId, 0);
         var timeoutTask = _service.ProcessDueTimeoutAsync(roomCode, generation);
         await Task.WhenAll(answerTask, timeoutTask);
 
@@ -719,7 +719,7 @@ public class GameServiceTests
         var session = await _store.GetAsync(roomCode);
         var questionId = session!.Questions[session.CurrentQuestionIndex].Id;
 
-        var result = await _service.SubmitAnswerAsync(roomCode, 300L, questionId, 0, 0);
+        var result = await _service.SubmitAnswerAsync(roomCode, 300L, questionId, 0);
 
         Assert.Null(result);
     }
@@ -742,7 +742,7 @@ public class GameServiceTests
         {
             var session = await _store.GetAsync(roomCode);
             var questionId = session!.Questions[session.CurrentQuestionIndex].Id;
-            Assert.NotNull(await _service.SubmitAnswerAsync(roomCode, 200L, questionId, 0, 0));
+            Assert.NotNull(await _service.SubmitAnswerAsync(roomCode, 200L, questionId, 0));
         }
 
         Assert.NotNull(gameResult);

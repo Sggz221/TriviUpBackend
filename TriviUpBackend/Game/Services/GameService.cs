@@ -287,7 +287,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     private static PlayerDto ToPlayerDto(PlayerDocument p) => new(
-        p.UserId, p.Username, p.Score, p.CorrectAnswers, p.WrongAnswers, false, p.IsOwner, p.IsConnected, p.IsSpectator);
+        p.UserId, p.Username, p.Score, p.CorrectAnswers, p.WrongAnswers, false, p.IsOwner, p.IsConnected, p.IsSpectator,
+        ComodinNames(p.AvailableComodines()));
+
+    private static List<string> ComodinNames(IEnumerable<ComodinTipo> comodines) =>
+        comodines.Select(c => c.ToString()).ToList();
 
     /// <summary>
     /// Cierra la sala por completo: limpia el mapeo de todos los jugadores, borra la sesión
@@ -417,7 +421,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <inheritdoc />
-    public async Task<TurnResultDto?> SubmitAnswerAsync(string roomCode, long userId, long questionId, int answerIndex, int timeRemaining)
+    public async Task<TurnResultDto?> SubmitAnswerAsync(string roomCode, long userId, long questionId, int answerIndex)
     {
         await using var roomLock = await AcquireRoomLockAsync(roomCode);
         if (roomLock is null) return null;
@@ -425,8 +429,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         var session = await _store.GetAsync(roomCode);
         if (session is null || session.State != GameState.Playing) return null;
 
-        var currentPlayerId = session.GetCurrentPlayerId();
-        if (currentPlayerId != userId)
+        if (session.GetAnsweringPlayerId() != userId)
         {
             _logger.LogWarning("User {UserId} attempted to answer but it's not their turn in room {RoomCode}", userId, roomCode);
             return null;
@@ -435,36 +438,262 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         var player = session.Players.FirstOrDefault(p => p.UserId == userId);
         if (player is null || player.IsSpectator) return null;
 
-        var question = session.Questions.FirstOrDefault(q => q.Id == questionId);
-        if (question is null) return null;
+        if (session.CurrentQuestionIndex >= session.Questions.Count) return null;
+        var question = session.Questions[session.CurrentQuestionIndex];
+        if (question.Id != questionId) return null;
 
+        // Una respuesta eliminada por la ruleta no se puede elegir.
+        if (answerIndex < 0 || answerIndex >= question.Respuestas.Count ||
+            session.EliminatedAnswerIndexes.Contains(answerIndex))
+        {
+            return null;
+        }
+
+        // Bonus de tiempo calculado en el servidor: el cliente ya no dicta cuánto le quedaba.
+        var remainingSeconds = GetVisibleRemainingSeconds(session);
         await _store.ClearDeadlineAsync(roomCode);
 
         var correctAnswer = question.Respuestas.FirstOrDefault(r => r.EsCorrecta);
-        var correctAnswerIndex = correctAnswer != null ? question.Respuestas.IndexOf(correctAnswer) : -1;
-        var selectedAnswer = question.Respuestas.ElementAtOrDefault(answerIndex);
-        var isCorrect = correctAnswer != null && selectedAnswer != null &&
+        var selectedAnswer = question.Respuestas[answerIndex];
+        var isCorrect = correctAnswer != null &&
                         string.Equals(correctAnswer.Texto, selectedAnswer.Texto, StringComparison.OrdinalIgnoreCase);
 
-        var pointsEarned = 0;
+        return await ResolveAnswerAsync(session, player, question, isCorrect, remainingSeconds, timedOut: false);
+    }
+
+    /// <summary>
+    /// Aplica el resultado de la respuesta (o del timeout) de quien estaba respondiendo:
+    /// puntos, comodines de la pregunta, apuestas y paso al siguiente turno. Si falla un
+    /// ladrón, el turno vuelve al jugador original con la misma pregunta.
+    /// </summary>
+    private async Task<TurnResultDto> ResolveAnswerAsync(
+        GameSessionDocument session, PlayerDocument player, QuestionSnapshot question,
+        bool isCorrect, int remainingSeconds, bool timedOut)
+    {
+        var isSteal = session.StealActive && session.StolenById == player.UserId;
+        var doubleOrNothing = session.DoubleOrNothingPlayers.Contains(player.UserId);
+
+        int pointsEarned;
         if (isCorrect)
         {
-            var turnLimit = GetTurnLimitSeconds(session);
-            var bonusSeconds = turnLimit > 0 ? Math.Clamp(timeRemaining, 0, turnLimit) : 0;
-            pointsEarned = _options.BasePoints + (bonusSeconds * _options.TimeBonusMultiplier);
-            pointsEarned = Math.Min(pointsEarned, _options.BasePoints + _options.MaxTimeBonus);
+            if (doubleOrNothing)
+            {
+                pointsEarned = _options.BasePoints * 2;
+            }
+            else
+            {
+                var bonusSeconds = Math.Clamp(remainingSeconds, 0, GetTurnLimitSeconds(session));
+                pointsEarned = Math.Min(
+                    _options.BasePoints + (bonusSeconds * _options.TimeBonusMultiplier),
+                    _options.BasePoints + _options.MaxTimeBonus);
+            }
             player.Score += pointsEarned;
             player.CorrectAnswers++;
         }
         else
         {
+            var penalty = doubleOrNothing ? _options.BasePoints : isSteal ? _options.BasePoints / 2 : 0;
+            pointsEarned = -ApplyPenalty(player, penalty);
             player.WrongAnswers++;
         }
 
-        var turnResult = new TurnResultDto(userId, isCorrect, correctAnswerIndex, pointsEarned, player.Score);
-        await BroadcastTurnResultAsync(roomCode, turnResult);
+        var correctAnswer = question.Respuestas.FirstOrDefault(r => r.EsCorrecta);
+        var correctAnswerIndex = correctAnswer != null ? question.Respuestas.IndexOf(correctAnswer) : -1;
+
+        if (isSteal && !isCorrect)
+        {
+            // Robo fallido: el original vuelve a responder la misma pregunta con el tiempo
+            // completo. No se revela la respuesta correcta todavía.
+            var originalId = session.GetCurrentPlayerId();
+            var failedSteal = new TurnResultDto(player.UserId, false, -1, pointsEarned, player.Score,
+                IsSteal: true, DoubleOrNothing: doubleOrNothing, ReturnsToPlayerId: originalId);
+
+            session.StealActive = false;
+            await BroadcastTurnOutcomeAsync(session.RoomCode, failedSteal, timedOut);
+            await RestartCurrentTurnAsync(session);
+            return failedSteal;
+        }
+
+        var bets = ResolveBets(session, originalAnswered: !isSteal, isCorrect);
+        var turnResult = new TurnResultDto(player.UserId, isCorrect, correctAnswerIndex, pointsEarned, player.Score,
+            IsSteal: isSteal, DoubleOrNothing: doubleOrNothing, Bets: bets);
+
+        await BroadcastTurnOutcomeAsync(session.RoomCode, turnResult, timedOut);
         await AdvanceToNextTurnAsync(session);
         return turnResult;
+    }
+
+    /// <summary>Resta puntos sin bajar de 0; devuelve lo que realmente se restó.</summary>
+    private static int ApplyPenalty(PlayerDocument player, int penalty)
+    {
+        var applied = Math.Min(penalty, player.Score);
+        player.Score -= applied;
+        return applied;
+    }
+
+    /// <summary>
+    /// Liquida las apuestas de la pregunta. Si la respondió el ladrón (y acertó), el jugador
+    /// en turno nunca llegó a responder: las apuestas se anulan y se devuelve el comodín.
+    /// </summary>
+    private List<BetResultDto> ResolveBets(GameSessionDocument session, bool originalAnswered, bool isCorrect)
+    {
+        var results = new List<BetResultDto>();
+        foreach (var bet in session.Bets)
+        {
+            var bettor = session.Players.FirstOrDefault(p => p.UserId == bet.UserId);
+            if (bettor is null) continue;
+
+            if (!originalAnswered)
+            {
+                bettor.UsedComodines.Remove(ComodinTipo.Apuesta);
+                results.Add(new BetResultDto(bettor.UserId, bet.PredictsCorrect, false, true, 0, bettor.Score));
+                continue;
+            }
+
+            var won = bet.PredictsCorrect == isCorrect;
+            var points = won ? _options.BasePoints / 2 : 0;
+            bettor.Score += points;
+            results.Add(new BetResultDto(bettor.UserId, bet.PredictsCorrect, won, false, points, bettor.Score));
+        }
+        return results;
+    }
+
+    /// <summary>Devuelve la pregunta actual al jugador en turno con el tiempo completo (tras un robo fallido o anulado).</summary>
+    private async Task RestartCurrentTurnAsync(GameSessionDocument session)
+    {
+        session.StealActive = false;
+        session.TurnStartedAt = DateTime.UtcNow;
+        session.TurnGeneration++;
+        await _store.ClearDeadlineAsync(session.RoomCode);
+        await StartTurnDeadlineAsync(session);
+        await BroadcastTurnStartedAsync(session);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<ComodinUsedDto>> UseComodinAsync(
+        string roomCode, long userId, ComodinTipo tipo, long questionId, bool? predictsCorrect = null)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure<ComodinUsedDto>("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        if (session is null) return Result.Failure<ComodinUsedDto>("Room not found.");
+
+        if (session.State != GameState.Playing)
+        {
+            return Result.Failure<ComodinUsedDto>("Los comodines solo se pueden usar con la partida en juego.");
+        }
+
+        var player = session.Players.FirstOrDefault(p => p.UserId == userId);
+        if (player is null || !player.CanPlay())
+        {
+            return Result.Failure<ComodinUsedDto>("Solo los jugadores pueden usar comodines.");
+        }
+
+        // El questionId evita que un clic tardío se aplique a la pregunta siguiente.
+        if (session.CurrentQuestionIndex >= session.Questions.Count ||
+            session.Questions[session.CurrentQuestionIndex].Id != questionId)
+        {
+            return Result.Failure<ComodinUsedDto>("La pregunta ya ha cambiado.");
+        }
+
+        if (player.UsedComodines.Contains(tipo))
+        {
+            return Result.Failure<ComodinUsedDto>("Ya has usado ese comodín.");
+        }
+
+        var question = session.Questions[session.CurrentQuestionIndex];
+        var turnOwnerId = session.GetCurrentPlayerId();
+        var answeringId = session.GetAnsweringPlayerId();
+
+        if (ComodinReglas.EsDeTurno(tipo) && answeringId != userId)
+        {
+            return Result.Failure<ComodinUsedDto>("Ese comodín solo se puede usar en tu turno.");
+        }
+
+        if (!ComodinReglas.EsDeTurno(tipo) && (turnOwnerId == userId || answeringId == userId))
+        {
+            return Result.Failure<ComodinUsedDto>("Ese comodín solo se puede usar fuera de tu turno.");
+        }
+
+        List<int>? eliminated = null;
+        int? ruletaResultado = null;
+        long? stolenFrom = null;
+
+        switch (tipo)
+        {
+            case ComodinTipo.Ruleta:
+            {
+                var candidates = Enumerable.Range(0, question.Respuestas.Count)
+                    .Where(i => !question.Respuestas[i].EsCorrecta && !session.EliminatedAnswerIndexes.Contains(i))
+                    .ToList();
+                var rolled = ComodinReglas.TirarRuleta(Random.Shared);
+                eliminated = candidates.OrderBy(_ => Random.Shared.Next()).Take(rolled).OrderBy(i => i).ToList();
+                ruletaResultado = eliminated.Count;
+                session.EliminatedAnswerIndexes.AddRange(eliminated);
+                break;
+            }
+            case ComodinTipo.DobleONada:
+                session.DoubleOrNothingPlayers.Add(userId);
+                break;
+            case ComodinTipo.Robo:
+                if (session.StolenById.HasValue)
+                {
+                    return Result.Failure<ComodinUsedDto>("Esta pregunta ya ha sido robada.");
+                }
+                if (session.Bets.Any(b => b.UserId == userId))
+                {
+                    return Result.Failure<ComodinUsedDto>("No puedes robar una pregunta sobre la que has apostado.");
+                }
+                stolenFrom = turnOwnerId;
+                session.StolenById = userId;
+                session.StealActive = true;
+                break;
+            case ComodinTipo.Apuesta:
+                if (predictsCorrect is null)
+                {
+                    return Result.Failure<ComodinUsedDto>("Indica si apuestas a que acierta o a que falla.");
+                }
+                if (session.StealActive)
+                {
+                    return Result.Failure<ComodinUsedDto>("No se puede apostar mientras la pregunta está robada.");
+                }
+                if (session.StolenById == userId)
+                {
+                    return Result.Failure<ComodinUsedDto>("No puedes apostar sobre una pregunta que has robado.");
+                }
+                session.Bets.Add(new BetDocument { UserId = userId, PredictsCorrect = predictsCorrect.Value });
+                break;
+        }
+
+        player.UsedComodines.Add(tipo);
+
+        var dto = new ComodinUsedDto(
+            userId, player.Username, tipo.ToString(), question.Id, ComodinNames(player.AvailableComodines()),
+            eliminated, ruletaResultado, tipo == ComodinTipo.Apuesta ? predictsCorrect : null, stolenFrom);
+
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+            await hubContext.Clients.Group(roomCode).SendAsync("ComodinUsed", dto);
+        }
+
+        if (tipo == ComodinTipo.Robo)
+        {
+            // El ladrón responde con el tiempo completo; el deadline del original queda obsoleto por la nueva generación.
+            session.TurnStartedAt = DateTime.UtcNow;
+            session.TurnGeneration++;
+            await _store.ClearDeadlineAsync(roomCode);
+            await StartTurnDeadlineAsync(session);
+            await BroadcastTurnStartedAsync(session);
+        }
+        else
+        {
+            await _store.SaveAsync(session);
+        }
+
+        _logger.LogInformation("User {UserId} used comodín {Tipo} in room {RoomCode}", userId, tipo, roomCode);
+        return Result.Success(dto);
     }
 
     /// <inheritdoc />
@@ -496,36 +725,30 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return;
         }
 
-        var currentPlayerId = session.GetCurrentPlayerId();
-        if (currentPlayerId is null)
+        var answeringPlayerId = session.GetAnsweringPlayerId();
+        if (answeringPlayerId is null)
         {
             await _store.ClearDeadlineAsync(roomCode);
             return;
         }
 
-        var player = session.Players.FirstOrDefault(p => p.UserId == currentPlayerId);
+        var player = session.Players.FirstOrDefault(p => p.UserId == answeringPlayerId);
         if (player is null)
         {
             await _store.ClearDeadlineAsync(roomCode);
             return;
         }
 
-        player.WrongAnswers++;
-
         if (session.CurrentQuestionIndex >= session.Questions.Count)
         {
+            player.WrongAnswers++;
             await EndGameAsync(session);
             return;
         }
 
-        var question = session.Questions[session.CurrentQuestionIndex];
-        var correctAnswer = question.Respuestas.FirstOrDefault(r => r.EsCorrecta);
-        var correctAnswerIndex = correctAnswer != null ? question.Respuestas.IndexOf(correctAnswer) : -1;
-
-        var turnResult = new TurnResultDto(currentPlayerId.Value, false, correctAnswerIndex, 0, player.Score);
         await _store.ClearDeadlineAsync(roomCode);
-        await BroadcastTurnTimeoutAsync(roomCode, turnResult);
-        await AdvanceToNextTurnAsync(session);
+        var question = session.Questions[session.CurrentQuestionIndex];
+        await ResolveAnswerAsync(session, player, question, isCorrect: false, remainingSeconds: 0, timedOut: true);
     }
 
     /// <inheritdoc />
@@ -657,8 +880,10 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
 
         var connectionIdToRemove = playerToKick.ConnectionId;
+        var wasActiveThief = session.StealActive && session.StolenById == playerIdToKick;
         session.Players.Remove(playerToKick);
         session.TurnQueue.RemoveAll(id => id == playerIdToKick);
+        session.Bets.RemoveAll(b => b.UserId == playerIdToKick);
 
         await _store.ClearUserRoomAsync(playerIdToKick);
         if (!string.IsNullOrEmpty(connectionIdToRemove))
@@ -666,7 +891,20 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             await _store.ClearConnectionMappingAsync(connectionIdToRemove);
         }
 
-        await _store.SaveAsync(session);
+        // Expulsado en mitad de un robo: la pregunta vuelve al jugador original con el tiempo completo.
+        if (wasActiveThief && session.State == GameState.Playing)
+        {
+            await RestartCurrentTurnAsync(session);
+        }
+        else
+        {
+            if (wasActiveThief)
+            {
+                session.StealActive = false;
+                session.PausedTimeRemaining = null;
+            }
+            await _store.SaveAsync(session);
+        }
 
         _logger.LogInformation("Player {PlayerIdToKick} kicked from room {RoomCode} by owner {OwnerId}",
             playerIdToKick, roomCode, ownerId);
@@ -742,6 +980,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
     private async Task AdvanceToNextTurnAsync(GameSessionDocument session)
     {
+        session.ResetQuestionState();
         session.CurrentQuestionIndex++;
         if (session.CurrentQuestionIndex >= session.Questions.Count)
         {
@@ -923,38 +1162,20 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.Questions.Count);
 
         TurnStartedDto? turn = null;
-        var currentPlayerId = session.GetCurrentPlayerId();
-        if (session.State != GameState.PhaseBreak &&
-            currentPlayerId is not null && session.CurrentQuestionIndex < session.Questions.Count)
+        if (session.State != GameState.PhaseBreak)
         {
-            var question = session.Questions[session.CurrentQuestionIndex];
-
             // Segundos que le quedan al turno (0 = sala sin tiempo)
             var limit = GetTurnLimitSeconds(session);
             var remaining = 0;
             if (limit > 0)
             {
-                if (session.State == GameState.Paused)
-                {
-                    remaining = session.PausedTimeRemaining ?? limit;
-                }
-                else if (session.TurnDeadlineUnixMs.HasValue)
-                {
-                    var ms = session.TurnDeadlineUnixMs.Value - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                    remaining = (int)Math.Ceiling(ms / 1000.0) - 1;
-                }
+                remaining = session.State == GameState.Paused
+                    ? session.PausedTimeRemaining ?? limit
+                    : GetVisibleRemainingSeconds(session);
                 remaining = Math.Clamp(remaining, 1, limit);
             }
 
-            turn = new TurnStartedDto(
-                currentPlayerId.Value,
-                false,
-                new QuestionDto(question.Id, question.Enunciado, question.Respuestas.Select(r => r.Texto).ToList(), question.ImagenUrl),
-                remaining,
-                question.FaseNumero,
-                question.FaseNombre,
-                GetTotalPhases(session),
-                question.FaseColor);
+            turn = BuildTurnStarted(session, remaining);
         }
 
         var phaseBreak = session.State == GameState.PhaseBreak ? BuildPhaseCompleted(session) : null;
@@ -973,6 +1194,19 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     private int GetTurnLimitSeconds(GameSessionDocument session) =>
         session.TurnTimeLimitSeconds ?? Math.Max(0, _options.QuestionTimeLimit - 1);
 
+    /// <summary>
+    /// Segundos visibles que le quedan a quien responde (los mismos que muestra su
+    /// contador, sin el segundo de gracia). 0 si la sala no tiene tiempo o no hay deadline.
+    /// </summary>
+    private int GetVisibleRemainingSeconds(GameSessionDocument session)
+    {
+        var limit = GetTurnLimitSeconds(session);
+        if (limit <= 0 || !session.TurnDeadlineUnixMs.HasValue) return 0;
+
+        var ms = session.TurnDeadlineUnixMs.Value - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        return Math.Clamp((int)Math.Ceiling(ms / 1000.0) - 1, 0, limit);
+    }
+
     /// <summary>Programa el deadline del turno actual si la sala tiene tiempo limitado.</summary>
     private async Task StartTurnDeadlineAsync(GameSessionDocument session)
     {
@@ -990,11 +1224,15 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         await _store.ScheduleDeadlineAsync(session.RoomCode, session.TurnDeadlineUnixMs.Value, session.TurnGeneration);
     }
 
-    private async Task BroadcastTurnStartedAsync(GameSessionDocument session)
+    /// <summary>
+    /// Turno en curso tal y como lo ve la sala. <c>CurrentPlayerId</c> es quien responde
+    /// ahora (el ladrón durante un robo) y <c>TurnOwnerId</c> el jugador al que le tocaba.
+    /// </summary>
+    private TurnStartedDto? BuildTurnStarted(GameSessionDocument session, int timeLimit)
     {
-        var currentPlayerId = session.GetCurrentPlayerId();
-        if (currentPlayerId is null) return;
-        if (session.CurrentQuestionIndex >= session.Questions.Count) return;
+        var answeringPlayerId = session.GetAnsweringPlayerId();
+        if (answeringPlayerId is null) return null;
+        if (session.CurrentQuestionIndex >= session.Questions.Count) return null;
 
         var question = session.Questions[session.CurrentQuestionIndex];
         var questionDto = new QuestionDto(
@@ -1004,34 +1242,39 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             question.ImagenUrl
         );
 
-        var turnStartedDto = new TurnStartedDto(
-            currentPlayerId.Value,
+        return new TurnStartedDto(
+            answeringPlayerId.Value,
             false,
             questionDto,
-            GetTurnLimitSeconds(session),
+            timeLimit,
             question.FaseNumero,
             question.FaseNombre,
             GetTotalPhases(session),
-            question.FaseColor
+            question.FaseColor,
+            session.GetCurrentPlayerId(),
+            session.StealActive,
+            session.EliminatedAnswerIndexes.ToList(),
+            session.DoubleOrNothingPlayers.ToList(),
+            session.Bets.Select(b => new BetDto(b.UserId, b.PredictsCorrect)).ToList(),
+            session.StolenById
         );
+    }
+
+    private async Task BroadcastTurnStartedAsync(GameSessionDocument session)
+    {
+        var turnStartedDto = BuildTurnStarted(session, GetTurnLimitSeconds(session));
+        if (turnStartedDto is null) return;
 
         using var scope = _scopeFactory.CreateScope();
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
         await hubContext.Clients.Group(session.RoomCode).SendAsync("TurnStarted", turnStartedDto);
     }
 
-    private async Task BroadcastTurnResultAsync(string roomCode, TurnResultDto turnResult)
+    private async Task BroadcastTurnOutcomeAsync(string roomCode, TurnResultDto turnResult, bool timedOut)
     {
         using var scope = _scopeFactory.CreateScope();
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
-        await hubContext.Clients.Group(roomCode).SendAsync("TurnResult", turnResult);
-    }
-
-    private async Task BroadcastTurnTimeoutAsync(string roomCode, TurnResultDto turnResult)
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
-        await hubContext.Clients.Group(roomCode).SendAsync("TurnTimeout", turnResult);
+        await hubContext.Clients.Group(roomCode).SendAsync(timedOut ? "TurnTimeout" : "TurnResult", turnResult);
     }
 
     private async Task BroadcastGamePausedAsync(string roomCode)

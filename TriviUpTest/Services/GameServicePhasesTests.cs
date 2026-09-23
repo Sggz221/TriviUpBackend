@@ -92,7 +92,7 @@ public class GameServicePhasesTests
         var session = (await _store.GetAsync(roomCode))!;
         var playerId = session.GetCurrentPlayerId()!.Value;
         var question = session.Questions[session.CurrentQuestionIndex];
-        Assert.NotNull(await _service.SubmitAnswerAsync(roomCode, playerId, question.Id, 0, 10));
+        Assert.NotNull(await _service.SubmitAnswerAsync(roomCode, playerId, question.Id, 0));
     }
 
     private void VerifySent(string method, Times times) =>

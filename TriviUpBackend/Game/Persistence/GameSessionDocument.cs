@@ -28,7 +28,36 @@ public sealed class GameSessionDocument
     /// <summary>Segundos por turno elegidos al crear la sala. null = valor por defecto; 0 = sin tiempo.</summary>
     public int? TurnTimeLimitSeconds { get; set; }
 
+    // ---- Estado de comodines de la pregunta en curso (se reinicia en cada pregunta) ----
+
+    /// <summary>Jugador que robó la pregunta actual (null si nadie). Se mantiene aunque falle el robo.</summary>
+    public long? StolenById { get; set; }
+
+    /// <summary>true mientras el ladrón está respondiendo; false cuando el turno vuelve al original.</summary>
+    public bool StealActive { get; set; }
+
+    /// <summary>Índices de respuestas eliminadas por la ruleta en la pregunta actual.</summary>
+    public List<int> EliminatedAnswerIndexes { get; set; } = new();
+
+    /// <summary>Jugadores con "Doble o nada" activo en la pregunta actual.</summary>
+    public List<long> DoubleOrNothingPlayers { get; set; } = new();
+
+    /// <summary>Apuestas sobre el jugador en turno en la pregunta actual.</summary>
+    public List<BetDocument> Bets { get; set; } = new();
+
     public long? GetCurrentPlayerId() => TurnQueue.Count > 0 ? TurnQueue[0] : null;
+
+    /// <summary>Quien responde ahora: el ladrón durante un robo o, si no, el jugador en turno.</summary>
+    public long? GetAnsweringPlayerId() => StealActive && StolenById.HasValue ? StolenById : GetCurrentPlayerId();
+
+    public void ResetQuestionState()
+    {
+        StolenById = null;
+        StealActive = false;
+        EliminatedAnswerIndexes = new();
+        DoubleOrNothingPlayers = new();
+        Bets = new();
+    }
 
     public long? RotateTurn()
     {
@@ -65,6 +94,22 @@ public sealed class PlayerDocument
     /// transferir el ownership a otro jugador de verdad.
     /// </summary>
     public DateTime? DisconnectedAt { get; set; }
+
+    /// <summary>Comodines ya gastados (cada jugador tiene uno de cada, no recuperables).</summary>
+    public List<ComodinTipo> UsedComodines { get; set; } = new();
+
+    public bool CanPlay() => !IsOwner && !IsSpectator;
+
+    public List<ComodinTipo> AvailableComodines() =>
+        CanPlay() ? ComodinReglas.Todos.Where(c => !UsedComodines.Contains(c)).ToList() : new();
+}
+
+public sealed class BetDocument
+{
+    public long UserId { get; set; }
+
+    /// <summary>true = apuesta a que el jugador en turno acierta.</summary>
+    public bool PredictsCorrect { get; set; }
 }
 
 public sealed class QuestionSnapshot
