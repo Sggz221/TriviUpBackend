@@ -106,7 +106,13 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return Result.Failure<GameRoom>("Room not found.");
         }
 
-        var ownerChangedBeforeJoin = EnsureOwnerActive(session);
+        var ownerCheck = EnsureOwnerActive(session);
+        if (ownerCheck == OwnerCheckResult.MustClose)
+        {
+            await CloseRoomAsync(session, "NO_PLAYERS");
+            return Result.Failure<GameRoom>("Room not found.");
+        }
+        var ownerChangedBeforeJoin = ownerCheck == OwnerCheckResult.Transferred;
 
         // Un jugador que ya está en la sala puede reconectar en cualquier estado
         // (Waiting, Playing, Paused) — solo un join genuinamente nuevo exige que la
@@ -234,19 +240,26 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     /// el owner de verdad: al unirse/reconectar alguien y al intentar iniciar la
     /// partida.
     /// </summary>
-    private bool EnsureOwnerActive(GameSessionDocument session)
+    private OwnerCheckResult EnsureOwnerActive(GameSessionDocument session)
     {
-        if (session.State != GameState.Waiting) return false;
+        if (session.State != GameState.Waiting) return OwnerCheckResult.Unchanged;
 
         var owner = session.Players.FirstOrDefault(p => p.IsOwner);
-        if (owner is null || owner.IsConnected || owner.DisconnectedAt is null) return false;
+        if (owner is null || owner.IsConnected || owner.DisconnectedAt is null) return OwnerCheckResult.Unchanged;
 
         var graceExpired = DateTime.UtcNow - owner.DisconnectedAt.Value
             > TimeSpan.FromMinutes(_options.OwnerReconnectGraceMinutes);
-        if (!graceExpired) return false;
+        if (!graceExpired) return OwnerCheckResult.Unchanged;
 
-        var newOwner = session.Players.FirstOrDefault(p => p.UserId != owner.UserId && p.IsConnected);
-        if (newOwner is null) return false;
+        // Un espectador nunca hereda la sala: si solo quedan espectadores conectados,
+        // no hay nadie que pueda jugar ni dirigir la partida y la sala se cierra.
+        var newOwner = session.Players.FirstOrDefault(p => p.UserId != owner.UserId && p.IsConnected && !p.IsSpectator);
+        if (newOwner is null)
+        {
+            return session.Players.Any(p => p.UserId != owner.UserId && p.IsConnected)
+                ? OwnerCheckResult.MustClose
+                : OwnerCheckResult.Unchanged;
+        }
 
         newOwner.IsOwner = true;
         session.OwnerId = newOwner.UserId;
@@ -254,35 +267,39 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         _logger.LogInformation(
             "Owner transferred to {NewOwnerId} in room {RoomCode} after {GraceMinutes}min reconnect grace expired",
             newOwner.UserId, session.RoomCode, _options.OwnerReconnectGraceMinutes);
-        return true;
+        return OwnerCheckResult.Transferred;
+    }
+
+    private enum OwnerCheckResult
+    {
+        Unchanged,
+        Transferred,
+        MustClose
     }
 
     private async Task BroadcastPlayersListAsync(GameSessionDocument session)
     {
-        var playersList = session.Players.Select(p => new PlayerDto(
-            p.UserId,
-            p.Username,
-            p.Score,
-            p.CorrectAnswers,
-            p.WrongAnswers,
-            false,
-            p.IsOwner,
-            p.IsConnected
-        )).ToList();
+        var playersList = session.Players.Select(ToPlayerDto).ToList();
 
         using var scope = _scopeFactory.CreateScope();
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
         await hubContext.Clients.Group(session.RoomCode).SendAsync("PlayersList", playersList);
     }
 
+    private static PlayerDto ToPlayerDto(PlayerDocument p) => new(
+        p.UserId, p.Username, p.Score, p.CorrectAnswers, p.WrongAnswers, false, p.IsOwner, p.IsConnected, p.IsSpectator);
+
     /// <summary>
     /// Cierra la sala por completo: limpia el mapeo de todos los jugadores, borra la sesión
     /// del store, los saca del grupo de SignalR y difunde <c>RoomClosed</c>.
     /// </summary>
-    private async Task CloseRoomAsync(GameSessionDocument session)
+    private async Task CloseRoomAsync(GameSessionDocument session, string reason = "OWNER_LEFT")
     {
         using var scope = _scopeFactory.CreateScope();
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+
+        // Avisar antes de sacarlos del grupo: después ya no recibirían el mensaje.
+        await hubContext.Clients.Group(session.RoomCode).SendAsync("RoomClosed", new RoomClosedDto(session.RoomCode, reason));
 
         foreach (var p in session.Players)
         {
@@ -297,9 +314,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         await _store.RemoveAsync(session.RoomCode);
 
-        await hubContext.Clients.Group(session.RoomCode).SendAsync("RoomClosed", new RoomClosedDto(session.RoomCode, "OWNER_LEFT"));
-
-        _logger.LogInformation("Room {RoomCode} closed because owner left explicitly while waiting", session.RoomCode);
+        _logger.LogInformation("Room {RoomCode} closed ({Reason})", session.RoomCode, reason);
     }
 
     /// <inheritdoc />
@@ -311,10 +326,15 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         var session = await _store.GetAsync(roomCode);
         if (session is null) return null;
 
-        if (EnsureOwnerActive(session))
+        switch (EnsureOwnerActive(session))
         {
-            await _store.SaveAsync(session);
-            await BroadcastPlayersListAsync(session);
+            case OwnerCheckResult.MustClose:
+                await CloseRoomAsync(session, "NO_PLAYERS");
+                return null;
+            case OwnerCheckResult.Transferred:
+                await _store.SaveAsync(session);
+                await BroadcastPlayersListAsync(session);
+                break;
         }
 
         if (session.OwnerId != userId)
@@ -335,7 +355,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return null;
         }
 
-        var activePlayers = session.Players.Where(p => p.IsConnected).ToList();
+        var activePlayers = session.Players.Where(p => p.IsConnected && !p.IsSpectator).ToList();
         if (activePlayers.Count < _options.MinPlayersToStart)
         {
             _logger.LogWarning("Not enough players to start room {RoomCode}", roomCode);
@@ -413,7 +433,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
 
         var player = session.Players.FirstOrDefault(p => p.UserId == userId);
-        if (player is null) return null;
+        if (player is null || player.IsSpectator) return null;
 
         var question = session.Questions.FirstOrDefault(q => q.Id == questionId);
         if (question is null) return null;
@@ -655,6 +675,49 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <inheritdoc />
+    public async Task<Result> SetSpectatorAsync(string roomCode, long ownerId, long targetUserId, bool isSpectator)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        if (session is null)
+        {
+            return Result.Failure("Room not found.");
+        }
+
+        if (session.OwnerId != ownerId)
+        {
+            return Result.Failure("Only the owner can assign spectators.");
+        }
+
+        if (session.State != GameState.Waiting)
+        {
+            return Result.Failure("Spectators can only be assigned in the lobby.");
+        }
+
+        var target = session.Players.FirstOrDefault(p => p.UserId == targetUserId);
+        if (target is null)
+        {
+            return Result.Failure("Player not found in this room.");
+        }
+
+        if (target.IsOwner)
+        {
+            return Result.Failure("The owner cannot be a spectator.");
+        }
+
+        target.IsSpectator = isSpectator;
+        await _store.SaveAsync(session);
+        await BroadcastPlayersListAsync(session);
+
+        _logger.LogInformation("Player {TargetUserId} in room {RoomCode} set as {Role} by owner {OwnerId}",
+            targetUserId, roomCode, isSpectator ? "spectator" : "player", ownerId);
+
+        return Result.Success();
+    }
+
+    /// <inheritdoc />
     public async Task HandleDisconnectionAsync(string connectionId)
     {
         _logger.LogInformation("Handling disconnection for connection {ConnectionId}", connectionId);
@@ -758,8 +821,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     {
         var completed = session.Questions[Math.Max(session.CurrentQuestionIndex - 1, 0)];
         var next = session.Questions[Math.Min(session.CurrentQuestionIndex, session.Questions.Count - 1)];
-        var players = session.Players.Select(p => new PlayerDto(
-            p.UserId, p.Username, p.Score, p.CorrectAnswers, p.WrongAnswers, false, p.IsOwner, p.IsConnected)).ToList();
+        var players = session.Players.Select(ToPlayerDto).ToList();
 
         return new PhaseCompletedDto(
             session.RoomCode,
@@ -794,7 +856,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
 
         var filteredPlayers = session.Players
-            .Where(p => p.UserId != session.OwnerId)
+            .Where(p => p.UserId != session.OwnerId && !p.IsSpectator)
             .OrderByDescending(p => p.Score)
             .Select((p, index) => new PlayerResultDto(
                 p.UserId,
@@ -851,8 +913,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return null;
         }
 
-        var players = session.Players.Select(p => new PlayerDto(
-            p.UserId, p.Username, p.Score, p.CorrectAnswers, p.WrongAnswers, false, p.IsOwner, p.IsConnected)).ToList();
+        var players = session.Players.Select(ToPlayerDto).ToList();
 
         var gameState = new GameStateDto(
             session.RoomCode,

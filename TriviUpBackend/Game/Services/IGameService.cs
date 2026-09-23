@@ -102,6 +102,15 @@ public interface IGameService
     Task<Result<string?>> KickPlayerAsync(string roomCode, long ownerId, long playerIdToKick);
 
     /// <summary>
+    /// Marca o desmarca a un jugador como espectador. Solo el propietario y solo en el lobby.
+    /// </summary>
+    /// <param name="roomCode">Código de la sala.</param>
+    /// <param name="ownerId">ID del propietario.</param>
+    /// <param name="targetUserId">ID del jugador afectado.</param>
+    /// <param name="isSpectator">true para convertirlo en espectador, false para devolverlo a jugador.</param>
+    Task<Result> SetSpectatorAsync(string roomCode, long ownerId, long targetUserId, bool isSpectator);
+
+    /// <summary>
     /// Maneja la desconexión de un jugador.
     /// </summary>
     /// <param name="connectionId">ID de conexión SignalR.</param>

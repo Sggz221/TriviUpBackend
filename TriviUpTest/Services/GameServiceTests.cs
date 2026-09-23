@@ -1,6 +1,7 @@
 using Moq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using TriviUpBackend.Game.DTOs;
 using TriviUpBackend.Game.Services;
 using TriviUpBackend.Game.Configuration;
 using TriviUpBackend.Game.Hubs;
@@ -22,6 +23,7 @@ public class GameServiceTests
     private readonly InMemoryGameSessionStore _store;
     private readonly GameService _service;
     private readonly Mock<IHubContext<GameHub>> _mockHubContext;
+    private readonly Mock<IClientProxy> _groupProxy = new();
 
     public GameServiceTests()
     {
@@ -50,8 +52,7 @@ public class GameServiceTests
         var mockScope = new Mock<IServiceScope>();
         var mockServiceProvider = new Mock<IServiceProvider>();
         var mockHubClients = new Mock<IHubClients>();
-        var mockClientProxy = new Mock<IClientProxy>();
-        mockHubClients.Setup(c => c.Group(It.IsAny<string>())).Returns(mockClientProxy.Object);
+        mockHubClients.Setup(c => c.Group(It.IsAny<string>())).Returns(_groupProxy.Object);
         _mockHubContext.Setup(h => h.Clients).Returns(mockHubClients.Object);
 
         var mockGroupManager = new Mock<IGroupManager>();
@@ -626,6 +627,163 @@ public class GameServiceTests
 
         Assert.NotNull(rejoin?.Turn);
         Assert.Equal(0, rejoin!.Turn!.TimeLimit);
+    }
+
+    // ========== Spectator Tests ==========
+
+    [Fact]
+    public async Task SetSpectatorAsync_OwnerInLobby_MarksPlayerAsSpectator()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+
+        var result = await _service.SetSpectatorAsync(roomCode, 100L, 200L, true);
+
+        Assert.True(result.IsSuccess);
+        var session = await _store.GetAsync(roomCode);
+        Assert.True(session!.Players.Single(p => p.UserId == 200L).IsSpectator);
+    }
+
+    [Fact]
+    public async Task SetSpectatorAsync_CanRevertToPlayer()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        await _service.SetSpectatorAsync(roomCode, 100L, 200L, true);
+
+        var result = await _service.SetSpectatorAsync(roomCode, 100L, 200L, false);
+
+        Assert.True(result.IsSuccess);
+        var session = await _store.GetAsync(roomCode);
+        Assert.False(session!.Players.Single(p => p.UserId == 200L).IsSpectator);
+    }
+
+    [Fact]
+    public async Task SetSpectatorAsync_NonOwner_ReturnsFailure()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        await _service.JoinGameAsync(roomCode, 300L, "player3", "conn-300");
+
+        var result = await _service.SetSpectatorAsync(roomCode, 200L, 300L, true);
+
+        Assert.True(result.IsFailure);
+    }
+
+    [Fact]
+    public async Task SetSpectatorAsync_TargetIsOwner_ReturnsFailure()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+
+        var result = await _service.SetSpectatorAsync(roomCode, 100L, 100L, true);
+
+        Assert.True(result.IsFailure);
+    }
+
+    [Fact]
+    public async Task SetSpectatorAsync_GameInProgress_ReturnsFailure()
+    {
+        var roomCode = await CreatePlayingTestRoom();
+
+        var result = await _service.SetSpectatorAsync(roomCode, 100L, 200L, true);
+
+        Assert.True(result.IsFailure);
+    }
+
+    [Fact]
+    public async Task StartGameAsync_SpectatorNotInTurnQueue()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        await _service.JoinGameAsync(roomCode, 300L, "spectator", "conn-300");
+        await _service.SetSpectatorAsync(roomCode, 100L, 300L, true);
+
+        Assert.NotNull(await _service.StartGameAsync(roomCode, 100L));
+
+        var session = await _store.GetAsync(roomCode);
+        Assert.Equal([200L], session!.TurnQueue);
+    }
+
+    [Fact]
+    public async Task StartGameAsync_OnlySpectators_ReturnsNull()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        await _service.SetSpectatorAsync(roomCode, 100L, 200L, true);
+
+        Assert.Null(await _service.StartGameAsync(roomCode, 100L));
+    }
+
+    [Fact]
+    public async Task SubmitAnswerAsync_Spectator_ReturnsNull()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        await _service.JoinGameAsync(roomCode, 300L, "spectator", "conn-300");
+        await _service.SetSpectatorAsync(roomCode, 100L, 300L, true);
+        await _service.StartGameAsync(roomCode, 100L);
+        var session = await _store.GetAsync(roomCode);
+        var questionId = session!.Questions[session.CurrentQuestionIndex].Id;
+
+        var result = await _service.SubmitAnswerAsync(roomCode, 300L, questionId, 0, 0);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task EndGame_SpectatorExcludedFromResults()
+    {
+        GameResultDto? gameResult = null;
+        _groupProxy
+            .Setup(p => p.SendCoreAsync("GameFinished", It.IsAny<object?[]>(), It.IsAny<CancellationToken>()))
+            .Callback<string, object?[], CancellationToken>((_, args, _) => gameResult = (GameResultDto)args[0]!)
+            .Returns(Task.CompletedTask);
+
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        await _service.JoinGameAsync(roomCode, 300L, "spectator", "conn-300");
+        await _service.SetSpectatorAsync(roomCode, 100L, 300L, true);
+        await _service.StartGameAsync(roomCode, 100L);
+
+        for (var i = 0; i < 2; i++)
+        {
+            var session = await _store.GetAsync(roomCode);
+            var questionId = session!.Questions[session.CurrentQuestionIndex].Id;
+            Assert.NotNull(await _service.SubmitAnswerAsync(roomCode, 200L, questionId, 0, 0));
+        }
+
+        Assert.NotNull(gameResult);
+        Assert.Equal([200L], gameResult!.PlayerResults.Select(p => p.UserId));
+    }
+
+    [Fact]
+    public async Task JoinGameAsync_OwnerGraceExpiredWithOnlySpectators_ClosesRoom()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        await _service.SetSpectatorAsync(roomCode, 100L, 200L, true);
+        await _service.LeaveGameAsync(roomCode, 100L);
+
+        var session = await _store.GetAsync(roomCode);
+        session!.Players.Single(p => p.UserId == 100L).DisconnectedAt = DateTime.UtcNow.AddMinutes(-10);
+        await _store.SaveAsync(session);
+
+        var result = await _service.JoinGameAsync(roomCode, 200L, "player2", "conn-200-new");
+
+        Assert.True(result.IsFailure);
+        Assert.Null(await _store.GetAsync(roomCode));
+        _groupProxy.Verify(p => p.SendCoreAsync("RoomClosed", It.IsAny<object?[]>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task JoinGameAsync_OwnerGraceExpired_SkipsSpectatorWhenTransferring()
+    {
+        var roomCode = await CreateTestRoomWithTwoPlayers();
+        await _service.JoinGameAsync(roomCode, 300L, "player3", "conn-300");
+        await _service.SetSpectatorAsync(roomCode, 100L, 200L, true);
+        await _service.LeaveGameAsync(roomCode, 100L);
+
+        var session = await _store.GetAsync(roomCode);
+        session!.Players.Single(p => p.UserId == 100L).DisconnectedAt = DateTime.UtcNow.AddMinutes(-10);
+        await _store.SaveAsync(session);
+
+        await _service.JoinGameAsync(roomCode, 200L, "player2", "conn-200-new");
+
+        var updated = await _store.GetAsync(roomCode);
+        Assert.Equal(300L, updated!.OwnerId);
+        Assert.False(updated.Players.Single(p => p.UserId == 200L).IsOwner);
     }
 
     // ========== Helpers ==========

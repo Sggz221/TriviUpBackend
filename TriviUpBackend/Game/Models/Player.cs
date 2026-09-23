@@ -14,5 +14,6 @@ public class Player
     public int TurnPosition { get; set; } = -1;
     public bool IsConnected { get; set; } = true;
     public bool IsOwner { get; set; } = false;
+    public bool IsSpectator { get; set; } = false;
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
 }

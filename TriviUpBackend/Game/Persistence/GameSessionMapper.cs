@@ -70,6 +70,7 @@ public static class GameSessionMapper
         TurnPosition = player.TurnPosition,
         IsConnected = player.IsConnected,
         IsOwner = player.IsOwner,
+        IsSpectator = player.IsSpectator,
         JoinedAt = player.JoinedAt
     };
 
@@ -84,6 +85,7 @@ public static class GameSessionMapper
         TurnPosition = doc.TurnPosition,
         IsConnected = doc.IsConnected,
         IsOwner = doc.IsOwner,
+        IsSpectator = doc.IsSpectator,
         JoinedAt = doc.JoinedAt
     };
 

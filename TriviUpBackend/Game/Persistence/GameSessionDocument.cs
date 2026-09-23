@@ -51,6 +51,12 @@ public sealed class PlayerDocument
     public int TurnPosition { get; set; } = -1;
     public bool IsConnected { get; set; } = true;
     public bool IsOwner { get; set; }
+
+    /// <summary>
+    /// Espectador asignado por el anfitrión en el lobby: ve la partida pero no juega
+    /// (fuera de la cola de turnos, puntuaciones y leaderboard final).
+    /// </summary>
+    public bool IsSpectator { get; set; }
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>

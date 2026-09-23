@@ -46,7 +46,8 @@ public record PlayerDto(
     int WrongAnswers,
     bool IsCurrentTurn,
     bool IsOwner,
-    bool IsConnected
+    bool IsConnected,
+    bool IsSpectator = false
 );
 
 /// <summary>

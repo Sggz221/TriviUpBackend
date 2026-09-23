@@ -176,7 +176,8 @@ public class GameHub : Hub
             0,  // wrongAnswers
             false,  // isCurrentTurn
             false,  // isOwner
-            true    // isConnected
+            true,   // isConnected
+            registered?.IsSpectator ?? false
         );
 
         // Send current players list to the new player first
@@ -188,7 +189,8 @@ public class GameHub : Hub
             p.WrongAnswers,
             false,  // isCurrentTurn - not stored on Player model
             p.IsOwner,
-            p.IsConnected
+            p.IsConnected,
+            p.IsSpectator
         )).ToList();
 
         await Clients.Caller.SendAsync("PlayersList", playersList);
@@ -269,7 +271,8 @@ public class GameHub : Hub
             p.WrongAnswers,
             false, // isCurrentTurn
             p.IsOwner,
-            p.IsConnected
+            p.IsConnected,
+            p.IsSpectator
         )).ToList();
 
         var gameStateDto = new GameStateDto(
@@ -387,5 +390,22 @@ public class GameHub : Hub
         await Clients.Group(roomCode).SendAsync("PlayerKicked", playerIdToKick);
         _logger.LogInformation("Broadcasted PlayerKicked event for player {PlayerIdToKick} in room {RoomCode}",
             playerIdToKick, roomCode);
+    }
+
+    /// <summary>
+    /// Convierte a un jugador en espectador (o lo devuelve a jugador). Solo el owner, solo en el lobby.
+    /// GameService difunde el PlayersList actualizado a toda la sala.
+    /// </summary>
+    public async Task SetSpectator(string roomCode, long targetUserId, bool isSpectator)
+    {
+        var ownerId = GetAuthenticatedUserId();
+
+        var result = await _gameService.SetSpectatorAsync(roomCode, ownerId, targetUserId, isSpectator);
+        if (result.IsFailure)
+        {
+            _logger.LogWarning("Failed to set spectator={IsSpectator} for {TargetUserId} in room {RoomCode} by {OwnerId}: {Error}",
+                isSpectator, targetUserId, roomCode, ownerId, result.Error);
+            throw new HubException(result.Error);
+        }
     }
 }
