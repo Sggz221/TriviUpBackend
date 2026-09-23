@@ -119,21 +119,54 @@ public class GameServiceComodinesTests
     // ========== Ruleta ==========
 
     [Fact]
-    public void TirarRuleta_FollowsWeightedDistribution_MiddleValuesMostLikely()
+    public void HuecosRuleta_OneAndTwoEquallyLikely_ExtremesLessLikely()
+    {
+        var huecos = ComodinReglas.HuecosRuleta;
+        int Count(int v) => huecos.Count(h => h == v);
+
+        Assert.Equal(20, huecos.Count);
+        Assert.Equal(Count(1), Count(2));
+        Assert.True(Count(1) > Count(0));
+        Assert.True(Count(1) > Count(3));
+        // Mezclados: nunca dos huecos iguales seguidos (tampoco al dar la vuelta)
+        for (var i = 0; i < huecos.Count; i++)
+        {
+            Assert.NotEqual(huecos[i], huecos[(i + 1) % huecos.Count]);
+        }
+    }
+
+    [Fact]
+    public void TirarRuleta_IsUniformOverHuecos_AndReturnsTheirValue()
     {
         var random = new Random(1234);
         var counts = new int[4];
         const int n = 100_000;
-        for (var i = 0; i < n; i++) counts[ComodinReglas.TirarRuleta(random)]++;
-
-        var total = ComodinReglas.PesosRuleta.Sum();
-        for (var i = 0; i < 4; i++)
+        for (var i = 0; i < n; i++)
         {
-            Assert.InRange(counts[i] / (double)n, ComodinReglas.PesosRuleta[i] / (double)total - 0.01, ComodinReglas.PesosRuleta[i] / (double)total + 0.01);
+            var (hueco, valor) = ComodinReglas.TirarRuleta(random);
+            Assert.Equal(ComodinReglas.HuecosRuleta[hueco], valor);
+            counts[valor]++;
         }
-        Assert.True(counts[2] > counts[1]);
-        Assert.True(counts[1] > counts[0]);
-        Assert.True(counts[1] > counts[3]);
+
+        for (var v = 0; v < 4; v++)
+        {
+            var expected = ComodinReglas.HuecosRuleta.Count(h => h == v) / (double)ComodinReglas.HuecosRuleta.Count;
+            Assert.InRange(counts[v] / (double)n, expected - 0.01, expected + 0.01);
+        }
+    }
+
+    [Fact]
+    public async Task Ruleta_ReportsHuecoAndExtendsTurnDeadlineBySpinDuration()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var deadlineBefore = s.TurnDeadlineUnixMs!.Value;
+
+        var result = await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.Ruleta, Current(s).Id);
+
+        Assert.InRange(result.Value.RuletaHueco!.Value, 0, ComodinReglas.HuecosRuleta.Count - 1);
+        Assert.Equal(ComodinReglas.DuracionRuletaMs, result.Value.RuletaDuracionMs);
+        Assert.Equal(deadlineBefore + ComodinReglas.DuracionRuletaMs, (await SessionAsync(roomCode)).TurnDeadlineUnixMs);
     }
 
     [Fact]

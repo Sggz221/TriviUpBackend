@@ -98,7 +98,9 @@ public record ComodinUsedDto(
     List<int>? EliminatedAnswerIndexes = null,
     int? RuletaResultado = null,
     bool? PredictsCorrect = null,
-    long? StolenFromPlayerId = null
+    long? StolenFromPlayerId = null,
+    int? RuletaHueco = null,
+    int? RuletaDuracionMs = null
 );
 
 /// <summary>

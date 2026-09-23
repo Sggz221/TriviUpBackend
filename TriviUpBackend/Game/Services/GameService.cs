@@ -618,6 +618,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         List<int>? eliminated = null;
         int? ruletaResultado = null;
+        int? ruletaHueco = null;
         long? stolenFrom = null;
 
         switch (tipo)
@@ -627,10 +628,18 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 var candidates = Enumerable.Range(0, question.Respuestas.Count)
                     .Where(i => !question.Respuestas[i].EsCorrecta && !session.EliminatedAnswerIndexes.Contains(i))
                     .ToList();
-                var rolled = ComodinReglas.TirarRuleta(Random.Shared);
-                eliminated = candidates.OrderBy(_ => Random.Shared.Next()).Take(rolled).OrderBy(i => i).ToList();
+                var (hueco, valor) = ComodinReglas.TirarRuleta(Random.Shared);
+                ruletaHueco = hueco;
+                eliminated = candidates.OrderBy(_ => Random.Shared.Next()).Take(valor).OrderBy(i => i).ToList();
                 ruletaResultado = eliminated.Count;
                 session.EliminatedAnswerIndexes.AddRange(eliminated);
+
+                // El giro no descuenta tiempo: el plazo del turno se alarga lo que dura la animación.
+                if (session.TurnDeadlineUnixMs.HasValue)
+                {
+                    session.TurnDeadlineUnixMs += ComodinReglas.DuracionRuletaMs;
+                    await _store.ScheduleDeadlineAsync(roomCode, session.TurnDeadlineUnixMs.Value, session.TurnGeneration);
+                }
                 break;
             }
             case ComodinTipo.DobleONada:
@@ -670,7 +679,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         var dto = new ComodinUsedDto(
             userId, player.Username, tipo.ToString(), question.Id, ComodinNames(player.AvailableComodines()),
-            eliminated, ruletaResultado, tipo == ComodinTipo.Apuesta ? predictsCorrect : null, stolenFrom);
+            eliminated, ruletaResultado, tipo == ComodinTipo.Apuesta ? predictsCorrect : null, stolenFrom,
+            ruletaHueco, ruletaHueco.HasValue ? ComodinReglas.DuracionRuletaMs : null);
 
         using (var scope = _scopeFactory.CreateScope())
         {

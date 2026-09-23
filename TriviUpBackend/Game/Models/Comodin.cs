@@ -26,20 +26,24 @@ public static class ComodinReglas
     public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada;
 
     /// <summary>
-    /// Pesos de la ruleta para eliminar 0, 1, 2 o 3 respuestas: más probables los valores
-    /// medios que los extremos, y 2 más probable que 1.
+    /// Huecos de la ruleta en orden horario desde arriba; cada uno dice cuántas respuestas
+    /// incorrectas elimina. Todos miden lo mismo, así que la probabilidad sale del número de
+    /// huecos: 0 → 2/20, 1 → 8/20, 2 → 8/20, 3 → 2/20. Mezclados para que no se vea venir
+    /// dónde cae. El frontend dibuja exactamente esta lista (game-room.ts, RULETA_HUECOS).
     /// </summary>
-    public static readonly IReadOnlyList<int> PesosRuleta = [10, 30, 45, 15];
+    public static readonly IReadOnlyList<int> HuecosRuleta =
+        [1, 2, 0, 1, 2, 1, 2, 3, 1, 2, 1, 2, 0, 1, 2, 1, 2, 3, 1, 2];
 
-    /// <summary>Tira la ruleta: número de respuestas incorrectas a eliminar (0-3).</summary>
-    public static int TirarRuleta(Random random)
+    /// <summary>
+    /// Lo que dura la animación de la ruleta (giro + revelación). El turno de quien la usa
+    /// se alarga este tiempo para que el giro no le coma segundos.
+    /// </summary>
+    public const int DuracionRuletaMs = 9000;
+
+    /// <summary>Tira la ruleta: hueco en el que cae y su valor (respuestas incorrectas a eliminar, 0-3).</summary>
+    public static (int Hueco, int Valor) TirarRuleta(Random random)
     {
-        var tirada = random.Next(PesosRuleta.Sum());
-        for (var i = 0; i < PesosRuleta.Count; i++)
-        {
-            if (tirada < PesosRuleta[i]) return i;
-            tirada -= PesosRuleta[i];
-        }
-        return PesosRuleta.Count - 1;
+        var hueco = random.Next(HuecosRuleta.Count);
+        return (hueco, HuecosRuleta[hueco]);
     }
 }
