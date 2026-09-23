@@ -447,14 +447,23 @@ public class GameServiceComodinesTests
     [Fact]
     public async Task Robo_ThiefCanUseTurnComodines_AndRuletaPersistsWhenTurnReturns()
     {
-        var roomCode = await StartRoomAsync();
-        var s = await SessionAsync(roomCode);
-        var original = s.GetCurrentPlayerId()!.Value;
-        var thief = Bystander(s);
-        await UseAsync(roomCode, thief, ComodinTipo.Robo, Current(s).Id);
+        string roomCode;
+        long original, thief;
+        CSharpFunctionalExtensions.Result<ComodinUsedDto> ruleta;
+        GameSessionDocument s;
+        // Si la ruleta cae en 3 elimina todas las incorrectas y el ladrón ya no puede fallar: repetir
+        do
+        {
+            roomCode = await StartRoomAsync();
+            s = await SessionAsync(roomCode);
+            original = s.GetCurrentPlayerId()!.Value;
+            thief = Bystander(s);
+            await UseAsync(roomCode, thief, ComodinTipo.Robo, Current(s).Id);
 
-        var ruleta = await UseAsync(roomCode, thief, ComodinTipo.Ruleta, Current(s).Id);
-        Assert.True(ruleta.IsSuccess);
+            ruleta = await UseAsync(roomCode, thief, ComodinTipo.Ruleta, Current(s).Id);
+            Assert.True(ruleta.IsSuccess);
+        } while (ruleta.Value.EliminatedAnswerIndexes!.Count == 3);
+
         s = await SessionAsync(roomCode);
         await _service.SubmitAnswerAsync(roomCode, thief, Current(s).Id, WrongIndex(s));
 

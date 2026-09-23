@@ -35,10 +35,10 @@ public static class ComodinReglas
         [1, 2, 0, 1, 2, 1, 2, 3, 1, 2, 1, 2, 0, 1, 2, 1, 2, 3, 1, 2];
 
     /// <summary>
-    /// Lo que dura la animación de la ruleta (giro + revelación). El turno de quien la usa
+    /// Lo que dura la animación de la ruleta (~15 s de giro + 2 s mostrando el resultado). El turno de quien la usa
     /// se alarga este tiempo para que el giro no le coma segundos.
     /// </summary>
-    public const int DuracionRuletaMs = 9000;
+    public const int DuracionRuletaMs = 17000;
 
     /// <summary>Tira la ruleta: hueco en el que cae y su valor (respuestas incorrectas a eliminar, 0-3).</summary>
     public static (int Hueco, int Valor) TirarRuleta(Random random)
