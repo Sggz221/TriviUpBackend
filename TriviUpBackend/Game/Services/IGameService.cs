@@ -74,6 +74,12 @@ public interface IGameService
     Task<Result<ComodinUsedDto>> UseComodinAsync(string roomCode, long userId, ComodinTipo tipo, long questionId, bool? predictsCorrect = null);
 
     /// <summary>
+    /// Modo presencial: el anfitrión quita el cartel de la Llamada en curso (lo ve toda la sala,
+    /// pero solo él puede cerrarlo).
+    /// </summary>
+    Task<Result> DismissCallAsync(string roomCode, long ownerId, long questionId);
+
+    /// <summary>
     /// Modo presencial: el anfitrión marca (o desmarca con null) la opción que ha dicho quien
     /// responde. No puntúa: la marca se difunde a la sala y se puede cambiar hasta confirmarla.
     /// </summary>

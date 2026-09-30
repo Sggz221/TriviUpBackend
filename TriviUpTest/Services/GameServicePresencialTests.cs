@@ -460,4 +460,68 @@ public class GameServicePresencialTests
         Assert.NotNull(rejoin.Turn);
         Assert.False(rejoin.LastTurnResult!.IsCorrect);
     }
+
+    // ========== Llamada (solo presencial) ==========
+
+    [Fact]
+    public async Task Llamada_ExistsOnlyInPresencial()
+    {
+        var presencial = await StartRoomAsync();
+        var normal = await StartRoomAsync(mode: GameMode.Normal, turnTime: 20);
+
+        foreach (var (roomCode, expected) in new[] { (presencial, true), (normal, false) })
+        {
+            var s = await SessionAsync(roomCode);
+            var players = (await _service.GetRejoinStateAsync(roomCode))!.GameState.Players;
+            Assert.Equal(expected, players.Single(p => p.UserId == s.GetCurrentPlayerId()).AvailableComodines!.Contains("Llamada"));
+
+            var used = await _service.UseComodinAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.Llamada, Current(s).Id);
+            Assert.Equal(expected, used.IsSuccess);
+        }
+    }
+
+    [Fact]
+    public async Task Llamada_ShowsBannerToRoom_UntilHostDismissesIt()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var player = s.GetCurrentPlayerId()!.Value;
+
+        Assert.True((await _service.UseComodinAsync(roomCode, player, ComodinTipo.Llamada, Current(s).Id)).IsSuccess);
+        Assert.True((await SessionAsync(roomCode)).CallActive);
+        Assert.True((await _service.GetRejoinStateAsync(roomCode))!.Turn!.CallActive);
+
+        // Solo el anfitrión puede quitar el cartel
+        Assert.True((await _service.DismissCallAsync(roomCode, player, Current(s).Id)).IsFailure);
+        Assert.True((await SessionAsync(roomCode)).CallActive);
+
+        Assert.True((await _service.DismissCallAsync(roomCode, Owner, Current(s).Id)).IsSuccess);
+        Assert.False((await SessionAsync(roomCode)).CallActive);
+        Assert.Contains(_sent, m => m.Method == "CallDismissed");
+    }
+
+    [Fact]
+    public async Task Llamada_OutOfTurn_OrTwice_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var player = s.GetCurrentPlayerId()!.Value;
+
+        Assert.True((await _service.UseComodinAsync(roomCode, Bystander(s), ComodinTipo.Llamada, Current(s).Id)).IsFailure);
+        Assert.True((await _service.UseComodinAsync(roomCode, player, ComodinTipo.Llamada, Current(s).Id)).IsSuccess);
+        Assert.True((await _service.UseComodinAsync(roomCode, player, ComodinTipo.Llamada, Current(s).Id)).IsFailure);
+    }
+
+    [Fact]
+    public async Task Llamada_BlocksRobo_AndEndsWhenAnswerIsConfirmed()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        await _service.UseComodinAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.Llamada, Current(s).Id);
+
+        Assert.True((await _service.UseComodinAsync(roomCode, Bystander(s), ComodinTipo.Robo, Current(s).Id)).IsFailure);
+
+        await MarkAndConfirmAsync(roomCode, CorrectIndex(s));
+        Assert.False((await SessionAsync(roomCode)).CallActive);
+    }
 }

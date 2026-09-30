@@ -12,7 +12,9 @@ public enum ComodinTipo
     /// <summary>Fuera de turno: responde la pregunta de quien tiene el turno.</summary>
     Robo,
     /// <summary>Fuera de turno: apuesta si el jugador en turno acertará o fallará.</summary>
-    Apuesta
+    Apuesta,
+    /// <summary>Turno propio, solo en modo Presencial: el equipo llama a un amigo y se muestra un cartel hasta que el anfitrión lo quita.</summary>
+    Llamada
 }
 
 /// <summary>
@@ -22,8 +24,12 @@ public static class ComodinReglas
 {
     public static readonly IReadOnlyList<ComodinTipo> Todos = Enum.GetValues<ComodinTipo>();
 
+    /// <summary>Comodines que existen en un modo de juego: la Llamada solo en Presencial.</summary>
+    public static IEnumerable<ComodinTipo> Disponibles(GameMode modo) =>
+        Todos.Where(c => c != ComodinTipo.Llamada || modo == GameMode.Presencial);
+
     /// <summary>true si el comodín se usa durante el turno propio; false si fuera de él.</summary>
-    public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada;
+    public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada or ComodinTipo.Llamada;
 
     /// <summary>
     /// Huecos de la ruleta en orden horario desde arriba; cada uno dice cuántas respuestas

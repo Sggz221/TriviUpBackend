@@ -159,7 +159,16 @@ public record TurnStartedDto(
     List<BetDto>? Bets = null,
     long? StolenById = null,
     string Mode = "Normal",
-    int? MarkedAnswerIndex = null
+    int? MarkedAnswerIndex = null,
+    bool ComodinUsed = false,
+    bool CallActive = false
+);
+
+/// <summary>
+/// Modo presencial: el anfitrión quitó el cartel de la Llamada.
+/// </summary>
+public record CallDismissedDto(
+    long QuestionId
 );
 
 /// <summary>

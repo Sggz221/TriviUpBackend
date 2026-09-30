@@ -187,7 +187,7 @@ public class GameHub : Hub
             false,  // isOwner
             true,   // isConnected
             registered?.IsSpectator ?? false,
-            registered?.AvailableComodines()
+            registered?.AvailableComodines(room.Mode)
         );
 
         // Send current players list to the new player first
@@ -201,7 +201,7 @@ public class GameHub : Hub
             p.IsOwner,
             p.IsConnected,
             p.IsSpectator,
-            p.AvailableComodines()
+            p.AvailableComodines(room.Mode)
         )).ToList();
 
         await Clients.Caller.SendAsync("PlayersList", playersList);
@@ -293,7 +293,7 @@ public class GameHub : Hub
             p.IsOwner,
             p.IsConnected,
             p.IsSpectator,
-            p.AvailableComodines()
+            p.AvailableComodines(room.Mode)
         )).ToList();
 
         var gameStateDto = new GameStateDto(
@@ -346,6 +346,21 @@ public class GameHub : Hub
         }
 
         return result.Value;
+    }
+
+    /// <summary>
+    /// Modo presencial: el anfitrión quita el cartel de la Llamada.
+    /// </summary>
+    public async Task DismissCall(string roomCode, long questionId)
+    {
+        var userId = GetAuthenticatedUserId();
+
+        var result = await _gameService.DismissCallAsync(roomCode, userId, questionId);
+        if (result.IsFailure)
+        {
+            _logger.LogWarning("Failed to dismiss call in room {RoomCode} by {UserId}: {Error}", roomCode, userId, result.Error);
+            throw new HubException(result.Error);
+        }
     }
 
     /// <summary>

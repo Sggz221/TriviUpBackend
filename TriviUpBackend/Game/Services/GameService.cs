@@ -281,16 +281,16 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
     private async Task BroadcastPlayersListAsync(GameSessionDocument session)
     {
-        var playersList = session.Players.Select(ToPlayerDto).ToList();
+        var playersList = session.Players.Select(p => ToPlayerDto(p, session.Mode)).ToList();
 
         using var scope = _scopeFactory.CreateScope();
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
         await hubContext.Clients.Group(session.RoomCode).SendAsync("PlayersList", playersList);
     }
 
-    private static PlayerDto ToPlayerDto(PlayerDocument p) => new(
+    private static PlayerDto ToPlayerDto(PlayerDocument p, GameMode mode) => new(
         p.UserId, p.Username, p.Score, p.CorrectAnswers, p.WrongAnswers, false, p.IsOwner, p.IsConnected, p.IsSpectator,
-        ComodinNames(p.AvailableComodines()));
+        ComodinNames(p.AvailableComodines(mode)));
 
     private static List<string> ComodinNames(IEnumerable<ComodinTipo> comodines) =>
         comodines.Select(c => c.ToString()).ToList();
@@ -471,6 +471,27 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <inheritdoc />
+    public async Task<Result> DismissCallAsync(string roomCode, long ownerId, long questionId)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        var check = CheckHostCanAnswer(session, ownerId, questionId);
+        if (check.IsFailure) return check;
+
+        if (!session!.CallActive) return Result.Success();
+
+        session.CallActive = false;
+        await _store.SaveAsync(session);
+
+        using var scope = _scopeFactory.CreateScope();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+        await hubContext.Clients.Group(roomCode).SendAsync("CallDismissed", new CallDismissedDto(questionId));
+        return Result.Success();
+    }
+
+    /// <inheritdoc />
     public async Task<Result> MarkAnswerAsync(string roomCode, long ownerId, long questionId, int? answerIndex)
     {
         await using var roomLock = await AcquireRoomLockAsync(roomCode);
@@ -560,6 +581,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     {
         var isSteal = session.StealActive && session.StolenById == player.UserId;
         var doubleOrNothing = session.DoubleOrNothingPlayers.Contains(player.UserId);
+        // La respuesta cierra la llamada aunque el anfitrión no haya quitado el cartel.
+        session.CallActive = false;
 
         int pointsEarned;
         if (isCorrect)
@@ -702,6 +725,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return Result.Failure<ComodinUsedDto>("La pregunta ya ha cambiado.");
         }
 
+        if (!ComodinReglas.Disponibles(session.Mode).Contains(tipo))
+        {
+            return Result.Failure<ComodinUsedDto>("Ese comodín no existe en este modo de juego.");
+        }
+
         if (player.UsedComodines.Contains(tipo))
         {
             return Result.Failure<ComodinUsedDto>("Ya has usado ese comodín.");
@@ -761,9 +789,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 {
                     return Result.Failure<ComodinUsedDto>("Esta pregunta ya ha sido robada.");
                 }
-                if (session.Bets.Any(b => b.UserId == userId))
+                if (session.ComodinUsedOnQuestion)
                 {
-                    return Result.Failure<ComodinUsedDto>("No puedes robar una pregunta sobre la que has apostado.");
+                    return Result.Failure<ComodinUsedDto>("No se puede robar una pregunta en la que ya se ha usado un comodín.");
                 }
                 stolenFrom = turnOwnerId;
                 session.StolenById = userId;
@@ -786,12 +814,24 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 }
                 session.Bets.Add(new BetDocument { UserId = userId, PredictsCorrect = predictsCorrect.Value });
                 break;
+            case ComodinTipo.Llamada:
+                if (session.CallActive)
+                {
+                    return Result.Failure<ComodinUsedDto>("Ya hay una llamada en curso.");
+                }
+                session.CallActive = true;
+                break;
         }
 
+        // El robo en sí no cierra nada: lo que bloquea el robo es que otro comodín se haya usado antes.
+        if (tipo != ComodinTipo.Robo)
+        {
+            session.ComodinUsedOnQuestion = true;
+        }
         player.UsedComodines.Add(tipo);
 
         var dto = new ComodinUsedDto(
-            userId, player.Username, tipo.ToString(), question.Id, ComodinNames(player.AvailableComodines()),
+            userId, player.Username, tipo.ToString(), question.Id, ComodinNames(player.AvailableComodines(session.Mode)),
             eliminated, ruletaResultado, tipo == ComodinTipo.Apuesta ? predictsCorrect : null, stolenFrom,
             ruletaHueco, ruletaHueco.HasValue ? ComodinReglas.DuracionRuletaMs : null);
 
@@ -1188,7 +1228,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     {
         var completed = session.Questions[Math.Max(session.CurrentQuestionIndex - 1, 0)];
         var next = session.Questions[Math.Min(session.CurrentQuestionIndex, session.Questions.Count - 1)];
-        var players = session.Players.Select(ToPlayerDto).ToList();
+        var players = session.Players.Select(p => ToPlayerDto(p, session.Mode)).ToList();
 
         return new PhaseCompletedDto(
             session.RoomCode,
@@ -1280,7 +1320,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return null;
         }
 
-        var players = session.Players.Select(ToPlayerDto).ToList();
+        var players = session.Players.Select(p => ToPlayerDto(p, session.Mode)).ToList();
 
         var gameState = new GameStateDto(
             session.RoomCode,
@@ -1390,7 +1430,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.Bets.Select(b => new BetDto(b.UserId, b.PredictsCorrect)).ToList(),
             session.StolenById,
             session.Mode.ToString(),
-            session.MarkedAnswerIndex
+            session.MarkedAnswerIndex,
+            session.ComodinUsedOnQuestion,
+            session.CallActive
         );
     }
 

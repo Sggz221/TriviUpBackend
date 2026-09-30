@@ -516,40 +516,36 @@ public class GameServiceComodinesTests
         Assert.Empty(after.Bets);
     }
 
-    [Fact]
-    public async Task Apuesta_WhenThiefAnswersCorrectly_IsRefunded()
-    {
-        var roomCode = await StartRoomAsync();
-        var s = await SessionAsync(roomCode);
-        var bettor = s.TurnQueue[1];
-        var thief = s.TurnQueue[2];
-
-        await UseAsync(roomCode, bettor, ComodinTipo.Apuesta, Current(s).Id, false);
-        await UseAsync(roomCode, thief, ComodinTipo.Robo, Current(s).Id);
-        var result = await _service.SubmitAnswerAsync(roomCode, thief, Current(s).Id, CorrectIndex(s));
-
-        var bet = result!.Bets!.Single();
-        Assert.True(bet.Refunded);
-        Assert.Equal(0, bet.PointsEarned);
-        var bettorDoc = (await SessionAsync(roomCode)).Players.Single(p => p.UserId == bettor);
-        Assert.Contains(ComodinTipo.Apuesta, bettorDoc.AvailableComodines());
-    }
-
-    [Fact]
-    public async Task Apuesta_SurvivesFailedSteal_AndResolvesOnOriginalAnswer()
+    [Theory]
+    [InlineData(ComodinTipo.Ruleta)]
+    [InlineData(ComodinTipo.DobleONada)]
+    [InlineData(ComodinTipo.Apuesta)]
+    public async Task Robo_AfterAnyComodin_Fails(ComodinTipo previo)
     {
         var roomCode = await StartRoomAsync();
         var s = await SessionAsync(roomCode);
         var original = s.GetCurrentPlayerId()!.Value;
-        var bettor = s.TurnQueue[1];
+        var user = previo == ComodinTipo.Apuesta ? s.TurnQueue[1] : original;
         var thief = s.TurnQueue[2];
 
-        await UseAsync(roomCode, bettor, ComodinTipo.Apuesta, Current(s).Id, false);
-        await UseAsync(roomCode, thief, ComodinTipo.Robo, Current(s).Id);
-        await _service.SubmitAnswerAsync(roomCode, thief, Current(s).Id, WrongIndex(s));
-        var result = await _service.SubmitAnswerAsync(roomCode, original, Current(s).Id, WrongIndex(s));
+        Assert.True((await UseAsync(roomCode, user, previo, Current(s).Id, previo == ComodinTipo.Apuesta ? true : null)).IsSuccess);
 
-        Assert.True(result!.Bets!.Single().Won);
+        Assert.True((await UseAsync(roomCode, thief, ComodinTipo.Robo, Current(s).Id)).IsFailure);
+        Assert.False((await SessionAsync(roomCode)).StealActive);
+    }
+
+    [Fact]
+    public async Task Robo_StillAllowedAgain_OnNextQuestion()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var thief = s.TurnQueue[2];
+        await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.DobleONada, Current(s).Id);
+        await _service.SubmitAnswerAsync(roomCode, s.GetCurrentPlayerId()!.Value, Current(s).Id, CorrectIndex(s));
+
+        s = await SessionAsync(roomCode);
+        Assert.False(s.ComodinUsedOnQuestion);
+        Assert.True((await UseAsync(roomCode, thief == s.GetCurrentPlayerId() ? Bystander(s) : thief, ComodinTipo.Robo, Current(s).Id)).IsSuccess);
     }
 
     [Fact]
@@ -559,7 +555,6 @@ public class GameServiceComodinesTests
         var s = await SessionAsync(roomCode);
         var original = s.GetCurrentPlayerId()!.Value;
         var bettor = s.TurnQueue[1];
-        var thief = s.TurnQueue[2];
 
         Assert.True((await UseAsync(roomCode, original, ComodinTipo.Apuesta, Current(s).Id, true)).IsFailure);
         Assert.True((await UseAsync(roomCode, bettor, ComodinTipo.Apuesta, Current(s).Id)).IsFailure); // sin predicción
@@ -567,9 +562,18 @@ public class GameServiceComodinesTests
         // Quien apuesta no puede robar esa pregunta
         Assert.True((await UseAsync(roomCode, bettor, ComodinTipo.Apuesta, Current(s).Id, true)).IsSuccess);
         Assert.True((await UseAsync(roomCode, bettor, ComodinTipo.Robo, Current(s).Id)).IsFailure);
+    }
+
+    [Fact]
+    public async Task Apuesta_DuringOrAfterSteal_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var thief = s.TurnQueue[2];
 
         // Ni se puede apostar durante un robo, ni el ladrón puede apostar tras fallarlo
         Assert.True((await UseAsync(roomCode, thief, ComodinTipo.Robo, Current(s).Id)).IsSuccess);
+        Assert.True((await UseAsync(roomCode, s.TurnQueue[1], ComodinTipo.Apuesta, Current(s).Id, true)).IsFailure);
         await _service.SubmitAnswerAsync(roomCode, thief, Current(s).Id, WrongIndex(s));
         Assert.True((await UseAsync(roomCode, thief, ComodinTipo.Apuesta, Current(s).Id, true)).IsFailure);
     }

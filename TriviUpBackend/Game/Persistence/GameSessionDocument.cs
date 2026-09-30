@@ -59,6 +59,12 @@ public sealed class GameSessionDocument
     /// <summary>Apuestas sobre el jugador en turno en la pregunta actual.</summary>
     public List<BetDocument> Bets { get; set; } = new();
 
+    /// <summary>Se ha usado algún comodín en la pregunta actual: a partir de ahí no se puede robar.</summary>
+    public bool ComodinUsedOnQuestion { get; set; }
+
+    /// <summary>Llamada en curso: el cartel sigue en pantalla hasta que el anfitrión lo quita.</summary>
+    public bool CallActive { get; set; }
+
     public long? GetCurrentPlayerId() => TurnQueue.Count > 0 ? TurnQueue[0] : null;
 
     /// <summary>Quien responde ahora: el ladrón durante un robo o, si no, el jugador en turno.</summary>
@@ -71,6 +77,8 @@ public sealed class GameSessionDocument
         EliminatedAnswerIndexes = new();
         DoubleOrNothingPlayers = new();
         Bets = new();
+        ComodinUsedOnQuestion = false;
+        CallActive = false;
         MarkedAnswerIndex = null;
         AwaitingNextQuestion = false;
         LastTurnResult = null;
@@ -117,8 +125,8 @@ public sealed class PlayerDocument
 
     public bool CanPlay() => !IsOwner && !IsSpectator;
 
-    public List<ComodinTipo> AvailableComodines() =>
-        CanPlay() ? ComodinReglas.Todos.Where(c => !UsedComodines.Contains(c)).ToList() : new();
+    public List<ComodinTipo> AvailableComodines(GameMode mode) =>
+        CanPlay() ? ComodinReglas.Disponibles(mode).Where(c => !UsedComodines.Contains(c)).ToList() : new();
 }
 
 public sealed class BetDocument

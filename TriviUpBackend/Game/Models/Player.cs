@@ -18,8 +18,8 @@ public class Player
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
     public List<ComodinTipo> UsedComodines { get; set; } = new();
 
-    public List<string> AvailableComodines() =>
+    public List<string> AvailableComodines(GameMode mode) =>
         IsOwner || IsSpectator
             ? new()
-            : ComodinReglas.Todos.Where(c => !UsedComodines.Contains(c)).Select(c => c.ToString()).ToList();
+            : ComodinReglas.Disponibles(mode).Where(c => !UsedComodines.Contains(c)).Select(c => c.ToString()).ToList();
 }
