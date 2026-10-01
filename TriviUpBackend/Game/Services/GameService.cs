@@ -413,6 +413,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         session.CurrentQuestionIndex = 0;
         session.TurnStartedAt = DateTime.UtcNow;
         session.TurnGeneration++;
+        session.BuzzerOpen = session.IsCurrentQuestionDynamic();
 
         await StartTurnDeadlineAsync(session);
 
@@ -548,8 +549,16 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         if (session is null) return Result.Failure("Room not found.");
         if (session.OwnerId != ownerId) return Result.Failure("Solo el anfitrión puede pasar de pregunta.");
         if (session.State != GameState.Playing) return Result.Failure("La partida no está en juego.");
-        if (!session.AwaitingNextQuestion) return Result.Failure("Todavía no se ha confirmado la respuesta.");
+        if (!session.AwaitingNextQuestion && !session.BuzzerOpen)
+        {
+            return Result.Failure("Todavía no se ha confirmado la respuesta.");
+        }
 
+        // Con el pulsador abierto, el anfitrión puede saltar la pregunta si nadie pulsa.
+        if (session.BuzzerOpen)
+        {
+            await _store.ClearDeadlineAsync(roomCode);
+        }
         await AdvanceToNextTurnAsync(session);
         return Result.Success();
     }
@@ -562,6 +571,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         if (session.OwnerId != ownerId) return Result.Failure("Solo el anfitrión puede marcar respuestas.");
         if (session.State != GameState.Playing) return Result.Failure("La partida no está en juego.");
         if (session.AwaitingNextQuestion) return Result.Failure("La respuesta ya está confirmada.");
+        if (session.BuzzerOpen) return Result.Failure("Todavía no ha pulsado ningún equipo.");
         if (session.CurrentQuestionIndex >= session.Questions.Count ||
             session.Questions[session.CurrentQuestionIndex].Id != questionId)
         {
@@ -693,6 +703,47 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <inheritdoc />
+    public async Task<Result> BuzzAsync(string roomCode, long userId, long questionId)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        if (session is null) return Result.Failure("Room not found.");
+        if (session.State != GameState.Playing) return Result.Failure("La partida no está en juego.");
+
+        var player = session.Players.FirstOrDefault(p => p.UserId == userId);
+        if (player is null || !player.CanPlay()) return Result.Failure("Solo los jugadores pueden pulsar.");
+
+        if (session.CurrentQuestionIndex >= session.Questions.Count ||
+            session.Questions[session.CurrentQuestionIndex].Id != questionId)
+        {
+            return Result.Failure("La pregunta ya ha cambiado.");
+        }
+
+        // Dentro del lock el primero que llega gana; el resto se encuentra el pulsador cerrado.
+        if (!session.BuzzerOpen) return Result.Failure("Otro equipo ha pulsado antes.");
+
+        session.BuzzerOpen = false;
+        session.BuzzWinnerId = userId;
+        session.TurnStartedAt = DateTime.UtcNow;
+        session.TurnGeneration++;
+        await _store.ClearDeadlineAsync(roomCode);
+        await StartTurnDeadlineAsync(session);
+
+        _logger.LogInformation("User {UserId} buzzed first in room {RoomCode}", userId, roomCode);
+
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+            await hubContext.Clients.Group(roomCode).SendAsync("BuzzerWon", new BuzzerWonDto(questionId, userId, player.Username));
+        }
+
+        await BroadcastTurnStartedAsync(session);
+        return Result.Success();
+    }
+
+    /// <inheritdoc />
     public async Task<Result<ComodinUsedDto>> UseComodinAsync(
         string roomCode, long userId, ComodinTipo tipo, long questionId, bool? predictsCorrect = null)
     {
@@ -723,6 +774,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.Questions[session.CurrentQuestionIndex].Id != questionId)
         {
             return Result.Failure<ComodinUsedDto>("La pregunta ya ha cambiado.");
+        }
+
+        if (session.IsCurrentQuestionDynamic())
+        {
+            return Result.Failure<ComodinUsedDto>("En las rondas dinámicas no hay comodines.");
         }
 
         if (!ComodinReglas.Disponibles(session.Mode).Contains(tipo))
@@ -893,6 +949,14 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return;
         }
 
+        if (session.BuzzerOpen)
+        {
+            // Nadie pulsó a tiempo: la pregunta se pasa sin puntos para nadie.
+            await _store.ClearDeadlineAsync(roomCode);
+            await AdvanceToNextTurnAsync(session);
+            return;
+        }
+
         var answeringPlayerId = session.GetAnsweringPlayerId();
         if (answeringPlayerId is null)
         {
@@ -1049,6 +1113,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         var connectionIdToRemove = playerToKick.ConnectionId;
         var wasActiveThief = session.StealActive && session.StolenById == playerIdToKick;
+        var wasBuzzWinner = session.BuzzWinnerId == playerIdToKick;
         session.Players.Remove(playerToKick);
         session.TurnQueue.RemoveAll(id => id == playerIdToKick);
         session.Bets.RemoveAll(b => b.UserId == playerIdToKick);
@@ -1060,7 +1125,14 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
 
         // Expulsado en mitad de un robo: la pregunta vuelve al jugador original con el tiempo completo.
-        if (wasActiveThief && session.State == GameState.Playing)
+        if (wasBuzzWinner && session.State == GameState.Playing)
+        {
+            // Expulsado quien había pulsado: la pregunta dinámica vuelve a abrirse a todos.
+            session.BuzzWinnerId = null;
+            session.BuzzerOpen = true;
+            await RestartCurrentTurnAsync(session);
+        }
+        else if (wasActiveThief && session.State == GameState.Playing)
         {
             await RestartCurrentTurnAsync(session);
         }
@@ -1185,6 +1257,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         session.TurnStartedAt = DateTime.UtcNow;
         session.TurnGeneration++;
+        session.BuzzerOpen = session.IsCurrentQuestionDynamic();
 
         await StartTurnDeadlineAsync(session);
         await BroadcastTurnStartedAsync(session);
@@ -1402,7 +1475,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     /// </summary>
     private TurnStartedDto? BuildTurnStarted(GameSessionDocument session, int timeLimit)
     {
-        var answeringPlayerId = session.GetAnsweringPlayerId();
+        // Con el pulsador abierto aún no responde nadie: CurrentPlayerId = 0 hasta que alguien pulse.
+        var answeringPlayerId = session.GetAnsweringPlayerId() ?? (session.BuzzerOpen ? 0 : null);
         if (answeringPlayerId is null) return null;
         if (session.CurrentQuestionIndex >= session.Questions.Count) return null;
 
@@ -1432,7 +1506,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.Mode.ToString(),
             session.MarkedAnswerIndex,
             session.ComodinUsedOnQuestion,
-            session.CallActive
+            session.CallActive,
+            question.FaseDinamica,
+            session.BuzzerOpen
         );
     }
 

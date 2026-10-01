@@ -63,6 +63,7 @@ public record QuizResponse
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
                 FaseColor = FaseColores.NormalizarOSinColor(p.FaseColor),
+                FaseDinamica = p.FaseDinamica,
                 Dificultad = Dificultades.NormalizarOSinClasificar(p.Dificultad),
                 Respuestas = p.Respuestas
                     .Select(r => new RespuestaResponse { Texto = r.Texto, EsCorrecta = r.EsCorrecta })
@@ -137,6 +138,8 @@ public record PreguntaResponse
     [property: JsonPropertyName("faseColor")]
     public string? FaseColor { get; init; }
 
+    public bool FaseDinamica { get; init; }
+
     [property: JsonPropertyName("dificultad")]
     public string? Dificultad { get; init; }
 
@@ -155,6 +158,7 @@ public record PreguntaResponse
         FaseNumero = pregunta.FaseNumero,
         FaseNombre = pregunta.FaseNombre,
         FaseColor = pregunta.FaseColor,
+        FaseDinamica = pregunta.FaseDinamica,
         Dificultad = pregunta.Dificultad,
         Respuestas = pregunta.Respuestas.Select(RespuestaResponse.FromEntity).ToList()
     };

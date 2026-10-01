@@ -52,6 +52,12 @@ public class Pregunta : ITimestamped
     [MaxLength(7)]
     public string? FaseColor { get; set; }
 
+    /// <summary>
+    /// Ronda dinámica (igual para todas las preguntas de la fase): nadie tiene turno asignado y
+    /// el primer equipo en pulsar desde su móvil se lleva la pregunta.
+    /// </summary>
+    public bool FaseDinamica { get; set; }
+
     public List<Respuesta> Respuestas { get; set; } = new();
 
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;

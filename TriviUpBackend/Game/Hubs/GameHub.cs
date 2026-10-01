@@ -327,6 +327,19 @@ public class GameHub : Hub
     }
 
     /// <summary>
+    /// Ronda dinámica: pulsa el botón del equipo. Gana el primero; el resto recibe un error.
+    /// </summary>
+    public async Task Buzz(string roomCode, long userId, long questionId)
+    {
+        var result = await _gameService.BuzzAsync(roomCode, userId, questionId);
+        if (result.IsFailure)
+        {
+            _logger.LogDebug("User {UserId} could not buzz in room {RoomCode}: {Error}", userId, roomCode, result.Error);
+            throw new HubException(result.Error);
+        }
+    }
+
+    /// <summary>
     /// Usa un comodín (Ruleta, DobleONada, Robo, Apuesta). Método anónimo con userId como parámetro.
     /// <paramref name="predictsCorrect"/> solo aplica a la Apuesta.
     /// </summary>

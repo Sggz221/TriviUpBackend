@@ -63,6 +63,15 @@ public interface IGameService
     Task<TurnResultDto?> SubmitAnswerAsync(string roomCode, long userId, long questionId, int answerIndex);
 
     /// <summary>
+    /// Ronda dinámica: un equipo pulsa desde su móvil. El primero en llegar se lleva la pregunta;
+    /// al resto se le rechaza porque el pulsador ya está cerrado.
+    /// </summary>
+    /// <param name="roomCode">Código de la sala.</param>
+    /// <param name="userId">ID del jugador que pulsa.</param>
+    /// <param name="questionId">Pregunta sobre la que se pulsa (descarta pulsaciones tardías).</param>
+    Task<Result> BuzzAsync(string roomCode, long userId, long questionId);
+
+    /// <summary>
     /// Usa un comodín del jugador sobre la pregunta actual. Los de turno (Ruleta, Doble o nada)
     /// solo los puede usar quien responde; los de fuera de turno (Robo, Apuesta), el resto.
     /// </summary>

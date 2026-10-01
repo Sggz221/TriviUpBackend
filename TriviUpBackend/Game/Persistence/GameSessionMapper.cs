@@ -101,6 +101,7 @@ public static class GameSessionMapper
         FaseNumero = pregunta.FaseNumero,
         FaseNombre = pregunta.FaseNombre,
         FaseColor = pregunta.FaseColor,
+        FaseDinamica = pregunta.FaseDinamica,
         Respuestas = pregunta.Respuestas.Select(r => new AnswerSnapshot
         {
             Id = r.Id,
@@ -117,6 +118,7 @@ public static class GameSessionMapper
         FaseNumero = snapshot.FaseNumero,
         FaseNombre = snapshot.FaseNombre,
         FaseColor = snapshot.FaseColor,
+        FaseDinamica = snapshot.FaseDinamica,
         Respuestas = snapshot.Respuestas.Select(r => new Respuesta
         {
             Id = r.Id,

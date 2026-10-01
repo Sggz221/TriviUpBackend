@@ -54,6 +54,7 @@ public class QuizService(
                 FaseNumero = p.FaseNumero,
                 FaseNombre = NormalizeFaseNombre(p.FaseNombre),
                 FaseColor = FaseColores.NormalizarOSinColor(p.FaseColor),
+                FaseDinamica = p.FaseDinamica,
                 Dificultad = Dificultades.NormalizarOSinClasificar(p.Dificultad),
                 Respuestas = p.Respuestas.Select(r => new Respuesta
                 {
@@ -155,6 +156,7 @@ public class QuizService(
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
                 FaseColor = p.FaseColor,
+                FaseDinamica = p.FaseDinamica,
                 Dificultad = p.Dificultad,
                 Respuestas = p.Respuestas.Select(r => new RespuestaResponse
                 {
@@ -483,6 +485,7 @@ public class QuizService(
                 FaseNumero = preguntaRequest.FaseNumero,
                 FaseNombre = NormalizeFaseNombre(preguntaRequest.FaseNombre),
                 FaseColor = FaseColores.NormalizarOSinColor(preguntaRequest.FaseColor),
+                FaseDinamica = preguntaRequest.FaseDinamica,
                 Dificultad = Dificultades.NormalizarOSinClasificar(preguntaRequest.Dificultad),
                 Respuestas = preguntaRequest.Respuestas.Select(r => new Respuesta
                 {
@@ -508,6 +511,7 @@ public class QuizService(
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
                 FaseColor = p.FaseColor,
+                FaseDinamica = p.FaseDinamica,
                 Dificultad = p.Dificultad,
                 Respuestas = p.Respuestas
                     .Select(r => new UpdateRespuestaRequest { Texto = r.Texto, EsCorrecta = r.EsCorrecta })

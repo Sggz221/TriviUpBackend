@@ -65,10 +65,24 @@ public sealed class GameSessionDocument
     /// <summary>Llamada en curso: el cartel sigue en pantalla hasta que el anfitrión lo quita.</summary>
     public bool CallActive { get; set; }
 
-    public long? GetCurrentPlayerId() => TurnQueue.Count > 0 ? TurnQueue[0] : null;
+    // ---- Ronda dinámica: pulsador (se reinicia en cada pregunta) ----
+
+    /// <summary>Pregunta dinámica a la espera de que algún equipo pulse: todavía no responde nadie.</summary>
+    public bool BuzzerOpen { get; set; }
+
+    /// <summary>Equipo que pulsó primero y responde la pregunta dinámica (null mientras el pulsador está abierto).</summary>
+    public long? BuzzWinnerId { get; set; }
+
+    /// <summary>Jugador al que le toca la pregunta: el que pulsó primero en una ronda dinámica o, si no, el de la cola de turnos.</summary>
+    public long? GetCurrentPlayerId() =>
+        BuzzerOpen ? null : BuzzWinnerId ?? (TurnQueue.Count > 0 ? TurnQueue[0] : null);
 
     /// <summary>Quien responde ahora: el ladrón durante un robo o, si no, el jugador en turno.</summary>
     public long? GetAnsweringPlayerId() => StealActive && StolenById.HasValue ? StolenById : GetCurrentPlayerId();
+
+    /// <summary>La pregunta en curso es de una ronda dinámica.</summary>
+    public bool IsCurrentQuestionDynamic() =>
+        CurrentQuestionIndex < Questions.Count && Questions[CurrentQuestionIndex].FaseDinamica;
 
     public void ResetQuestionState()
     {
@@ -79,6 +93,8 @@ public sealed class GameSessionDocument
         Bets = new();
         ComodinUsedOnQuestion = false;
         CallActive = false;
+        BuzzerOpen = false;
+        BuzzWinnerId = null;
         MarkedAnswerIndex = null;
         AwaitingNextQuestion = false;
         LastTurnResult = null;
@@ -145,6 +161,9 @@ public sealed class QuestionSnapshot
     public int FaseNumero { get; set; } = 1;
     public string? FaseNombre { get; set; }
     public string? FaseColor { get; set; }
+
+    /// <summary>Ronda dinámica: el primero en pulsar se lleva la pregunta.</summary>
+    public bool FaseDinamica { get; set; }
     public List<AnswerSnapshot> Respuestas { get; set; } = new();
 }
 

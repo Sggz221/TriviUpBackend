@@ -161,7 +161,18 @@ public record TurnStartedDto(
     string Mode = "Normal",
     int? MarkedAnswerIndex = null,
     bool ComodinUsed = false,
-    bool CallActive = false
+    bool CallActive = false,
+    bool IsDynamic = false,
+    bool BuzzerOpen = false
+);
+
+/// <summary>
+/// Ronda dinámica: el equipo que ha pulsado primero y responde la pregunta.
+/// </summary>
+public record BuzzerWonDto(
+    long QuestionId,
+    long PlayerId,
+    string Username
 );
 
 /// <summary>
