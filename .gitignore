@@ -29,3 +29,6 @@ TestResults/
 
 # Playwright
 playwright/.cache/
+
+# Coverage (coverlet)
+coverage.cobertura.xml
