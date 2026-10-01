@@ -1507,7 +1507,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.MarkedAnswerIndex,
             session.ComodinUsedOnQuestion,
             session.CallActive,
-            question.FaseDinamica,
+            question.EsPulsador,
             session.BuzzerOpen
         );
     }

@@ -87,9 +87,11 @@ public record UpdatePreguntaRequest
     public string? FaseColor { get; init; }
 
     /// <summary>
-    /// Ronda dinámica: los equipos pulsan desde el móvil y responde el primero en hacerlo.
+    /// Tipo de pregunta: normal (por defecto) o pulsador (los equipos pulsan desde el móvil y
+    /// responde el primero en hacerlo).
     /// </summary>
-    public bool FaseDinamica { get; init; }
+    [MaxLength(20, ErrorMessage = "Tipo de pregunta no válido")]
+    public string? Tipo { get; init; }
 
     /// <summary>
     /// Lista de respuestas de la pregunta.

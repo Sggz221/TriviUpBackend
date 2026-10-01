@@ -52,11 +52,10 @@ public class Pregunta : ITimestamped
     [MaxLength(7)]
     public string? FaseColor { get; set; }
 
-    /// <summary>
-    /// Ronda dinámica (igual para todas las preguntas de la fase): nadie tiene turno asignado y
-    /// el primer equipo en pulsar desde su móvil se lleva la pregunta.
-    /// </summary>
-    public bool FaseDinamica { get; set; }
+    /// <summary>Tipo de pregunta: normal o pulsador (ver <see cref="TiposPregunta"/>).</summary>
+    [Required]
+    [MaxLength(20)]
+    public string Tipo { get; set; } = TiposPregunta.Normal;
 
     public List<Respuesta> Respuestas { get; set; } = new();
 

@@ -298,6 +298,47 @@ public class QuizServicePhasesTests
         Assert.Equal(["dificil", null], response.Preguntas.Select(p => p.Dificultad));
     }
 
+    private static CreatePreguntaRequest WithTipo(string? tipo) => CreateQ(1, 1, null) with { Tipo = tipo };
+
+    [Theory]
+    [InlineData("pulsador", "pulsador")]
+    [InlineData(" Pulsador ", "pulsador")]
+    [InlineData(null, "normal")]
+    public async Task CreateAsync_QuestionType_IsStoredNormalized(string? enviado, string esperado)
+    {
+        Quiz? saved = null;
+        _repo.Setup(r => r.SaveAsync(It.IsAny<Quiz>())).Callback<Quiz>(q => saved = q).ReturnsAsync((Quiz q) => q);
+        _repo.Setup(r => r.FindByIdWithQuestionsAsync(It.IsAny<long>())).ReturnsAsync(() => saved);
+
+        var result = await _service.CreateAsync(Request(WithTipo(enviado)), creatorId: 1);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(esperado, saved!.Preguntas.Single().Tipo);
+        Assert.Equal(esperado, result.Value.Preguntas.Single().Tipo);
+    }
+
+    [Fact]
+    public async Task CreateAsync_UnknownQuestionType_ReturnsValidationErrorWhenPublishing()
+    {
+        var result = await _service.CreateAsync(Request(WithTipo("ruleta-rusa")), creatorId: 1);
+
+        Assert.True(result.IsFailure);
+        Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task CreateAsync_UnknownQuestionType_BecomesNormalInDrafts()
+    {
+        Quiz? saved = null;
+        _repo.Setup(r => r.SaveAsync(It.IsAny<Quiz>())).Callback<Quiz>(q => saved = q).ReturnsAsync((Quiz q) => q);
+        _repo.Setup(r => r.FindByIdWithQuestionsAsync(It.IsAny<long>())).ReturnsAsync(() => saved);
+
+        var result = await _service.CreateAsync(Request(WithTipo("ruleta-rusa")) with { EsBorrador = true }, creatorId: 1);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("normal", saved!.Preguntas.Single().Tipo);
+    }
+
     [Fact]
     public void LegacyVersionContentWithoutPhases_DeserializesToPhaseOne()
     {

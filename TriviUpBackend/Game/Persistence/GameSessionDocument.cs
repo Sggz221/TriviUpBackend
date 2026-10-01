@@ -80,9 +80,9 @@ public sealed class GameSessionDocument
     /// <summary>Quien responde ahora: el ladrón durante un robo o, si no, el jugador en turno.</summary>
     public long? GetAnsweringPlayerId() => StealActive && StolenById.HasValue ? StolenById : GetCurrentPlayerId();
 
-    /// <summary>La pregunta en curso es de una ronda dinámica.</summary>
+    /// <summary>La pregunta en curso es de pulsador.</summary>
     public bool IsCurrentQuestionDynamic() =>
-        CurrentQuestionIndex < Questions.Count && Questions[CurrentQuestionIndex].FaseDinamica;
+        CurrentQuestionIndex < Questions.Count && Questions[CurrentQuestionIndex].EsPulsador;
 
     public void ResetQuestionState()
     {
@@ -162,8 +162,8 @@ public sealed class QuestionSnapshot
     public string? FaseNombre { get; set; }
     public string? FaseColor { get; set; }
 
-    /// <summary>Ronda dinámica: el primero en pulsar se lleva la pregunta.</summary>
-    public bool FaseDinamica { get; set; }
+    /// <summary>Pregunta de pulsador: el primero en pulsar se lleva la pregunta.</summary>
+    public bool EsPulsador { get; set; }
     public List<AnswerSnapshot> Respuestas { get; set; } = new();
 }
 

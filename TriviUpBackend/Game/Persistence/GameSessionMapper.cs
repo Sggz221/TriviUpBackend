@@ -101,7 +101,7 @@ public static class GameSessionMapper
         FaseNumero = pregunta.FaseNumero,
         FaseNombre = pregunta.FaseNombre,
         FaseColor = pregunta.FaseColor,
-        FaseDinamica = pregunta.FaseDinamica,
+        EsPulsador = pregunta.Tipo == TiposPregunta.Pulsador,
         Respuestas = pregunta.Respuestas.Select(r => new AnswerSnapshot
         {
             Id = r.Id,
@@ -118,7 +118,7 @@ public static class GameSessionMapper
         FaseNumero = snapshot.FaseNumero,
         FaseNombre = snapshot.FaseNombre,
         FaseColor = snapshot.FaseColor,
-        FaseDinamica = snapshot.FaseDinamica,
+        Tipo = snapshot.EsPulsador ? TiposPregunta.Pulsador : TiposPregunta.Normal,
         Respuestas = snapshot.Respuestas.Select(r => new Respuesta
         {
             Id = r.Id,

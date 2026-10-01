@@ -54,7 +54,7 @@ public class QuizService(
                 FaseNumero = p.FaseNumero,
                 FaseNombre = NormalizeFaseNombre(p.FaseNombre),
                 FaseColor = FaseColores.NormalizarOSinColor(p.FaseColor),
-                FaseDinamica = p.FaseDinamica,
+                Tipo = TiposPregunta.NormalizarONormal(p.Tipo),
                 Dificultad = Dificultades.NormalizarOSinClasificar(p.Dificultad),
                 Respuestas = p.Respuestas.Select(r => new Respuesta
                 {
@@ -156,7 +156,7 @@ public class QuizService(
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
                 FaseColor = p.FaseColor,
-                FaseDinamica = p.FaseDinamica,
+                Tipo = p.Tipo,
                 Dificultad = p.Dificultad,
                 Respuestas = p.Respuestas.Select(r => new RespuestaResponse
                 {
@@ -485,7 +485,7 @@ public class QuizService(
                 FaseNumero = preguntaRequest.FaseNumero,
                 FaseNombre = NormalizeFaseNombre(preguntaRequest.FaseNombre),
                 FaseColor = FaseColores.NormalizarOSinColor(preguntaRequest.FaseColor),
-                FaseDinamica = preguntaRequest.FaseDinamica,
+                Tipo = TiposPregunta.NormalizarONormal(preguntaRequest.Tipo),
                 Dificultad = Dificultades.NormalizarOSinClasificar(preguntaRequest.Dificultad),
                 Respuestas = preguntaRequest.Respuestas.Select(r => new Respuesta
                 {
@@ -511,7 +511,7 @@ public class QuizService(
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
                 FaseColor = p.FaseColor,
-                FaseDinamica = p.FaseDinamica,
+                Tipo = p.Tipo,
                 Dificultad = p.Dificultad,
                 Respuestas = p.Respuestas
                     .Select(r => new UpdateRespuestaRequest { Texto = r.Texto, EsCorrecta = r.EsCorrecta })
@@ -662,6 +662,9 @@ public class QuizService(
         var dificultad = ValidateDificultades(request.Preguntas.Select(p => p.Dificultad));
         if (dificultad.IsFailure) return dificultad;
 
+        var tipo = ValidateTipos(request.Preguntas.Select(p => p.Tipo));
+        if (tipo.IsFailure) return tipo;
+
         var color = ValidateColores(request.Preguntas.Select(p => p.FaseColor));
         if (color.IsFailure) return color;
 
@@ -675,6 +678,15 @@ public class QuizService(
             ? UnitResult.Success<QuizError>()
             : UnitResult.Failure<QuizError>(new QuizValidationError(
                 $"Color de fase no válido: \"{invalido}\". Usa el formato #rrggbb."));
+    }
+
+    private static UnitResult<QuizError> ValidateTipos(IEnumerable<string?> tipos)
+    {
+        var invalido = tipos.FirstOrDefault(t => !TiposPregunta.EsValido(t));
+        return invalido is null
+            ? UnitResult.Success<QuizError>()
+            : UnitResult.Failure<QuizError>(new QuizValidationError(
+                $"Tipo de pregunta no válido: \"{invalido}\". Usa normal o pulsador."));
     }
 
     private static UnitResult<QuizError> ValidateDificultades(IEnumerable<string?> dificultades)
@@ -781,6 +793,9 @@ public class QuizService(
 
         var dificultad = ValidateDificultades(request.Preguntas.Select(p => p.Dificultad));
         if (dificultad.IsFailure) return dificultad;
+
+        var tipo = ValidateTipos(request.Preguntas.Select(p => p.Tipo));
+        if (tipo.IsFailure) return tipo;
 
         var color = ValidateColores(request.Preguntas.Select(p => p.FaseColor));
         if (color.IsFailure) return color;

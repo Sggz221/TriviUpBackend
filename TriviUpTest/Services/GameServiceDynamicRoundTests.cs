@@ -8,6 +8,7 @@ using TriviUpBackend.Game.Hubs;
 using TriviUpBackend.Game.Models;
 using TriviUpBackend.Game.Persistence;
 using TriviUpBackend.Game.Services;
+using TriviUpBackend.Cuestionarios.Entities;
 using Pregunta = TriviUpBackend.Cuestionarios.Entities.Pregunta;
 using Quiz = TriviUpBackend.Cuestionarios.Entities.Quiz;
 using Respuesta = TriviUpBackend.Cuestionarios.Entities.Respuesta;
@@ -65,7 +66,7 @@ public class GameServiceDynamicRoundTests
         NumeroPregunta = (int)id,
         Enunciado = $"Pregunta {id}",
         FaseNumero = fase,
-        FaseDinamica = dinamica,
+        Tipo = dinamica ? TiposPregunta.Pulsador : TiposPregunta.Normal,
         Respuestas =
         [
             new Respuesta { Id = id * 10 + 1, Texto = "Sí", EsCorrecta = true },
