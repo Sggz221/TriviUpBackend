@@ -61,7 +61,8 @@ public class QuizService(
                     Texto = r.Texto,
                     EsCorrecta = r.EsCorrecta
                 }).ToList()
-            }).ToList()
+            }).ToList(),
+            Pools = NormalizePools(request.Pools)
         };
 
         Quiz savedQuiz;
@@ -165,6 +166,7 @@ public class QuizService(
                     EsCorrecta = r.EsCorrecta
                 }).ToList()
             }).ToList(),
+            Pools = q.Pools,
             CreatorId = q.CreatorId,
             FechaCreacion = q.CreatedAt,
             FechaActualizacion = q.UpdatedAt
@@ -464,10 +466,11 @@ public class QuizService(
         return null;
     }
 
-    /// <summary>Sustituye el contenido vivo del quiz (nombre, preguntas y respuestas).</summary>
+    /// <summary>Sustituye el contenido vivo del quiz (nombre, preguntas, respuestas y pools).</summary>
     private static void ApplyContent(Quiz quiz, UpdateQuizRequest request)
     {
         quiz.Nombre = request.Nombre;
+        quiz.Pools = NormalizePools(request.Pools);
 
         // Quitar preguntas y respuestas antiguas
         quiz.Preguntas.Clear();
@@ -516,8 +519,12 @@ public class QuizService(
                 Respuestas = p.Respuestas
                     .Select(r => new UpdateRespuestaRequest { Texto = r.Texto, EsCorrecta = r.EsCorrecta })
                     .ToList()
-            }).ToList()
+            }).ToList(),
+        Pools = quiz.Pools
     };
+
+    private static List<FasePool> NormalizePools(IEnumerable<FasePool>? pools) =>
+        (pools ?? []).Select(OrigenesPool.Normalizar).OrderBy(p => p.FaseNumero).ToList();
 
     /// <inheritdoc cref="IQuizService.DeleteAsync"/>
     public async Task<UnitResult<QuizError>> DeleteAsync(long id, long userId)
@@ -629,7 +636,7 @@ public class QuizService(
 
     private UnitResult<QuizError> ValidateCreateRequest(CreateQuizRequest request)
     {
-        if (request.Preguntas == null || request.Preguntas.Count == 0)
+        if ((request.Preguntas == null || request.Preguntas.Count == 0) && request.Pools.Count == 0)
         {
             return UnitResult.Failure<QuizError>(new QuizValidationError("Debe haber al menos una pregunta"));
         }
@@ -665,10 +672,15 @@ public class QuizService(
         var tipo = ValidateTipos(request.Preguntas.Select(p => p.Tipo));
         if (tipo.IsFailure) return tipo;
 
-        var color = ValidateColores(request.Preguntas.Select(p => p.FaseColor));
+        var color = ValidateColores(request.Preguntas.Select(p => p.FaseColor).Concat(request.Pools.Select(p => p.FaseColor)));
         if (color.IsFailure) return color;
 
-        return ValidateFases(request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre, p.FaseColor)));
+        var pools = ValidatePools(request.Pools);
+        if (pools.IsFailure) return pools;
+
+        return ValidateFases(
+            request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre, p.FaseColor)),
+            request.Pools.Select(p => p.FaseNumero));
     }
 
     private static UnitResult<QuizError> ValidateColores(IEnumerable<string?> colores)
@@ -702,27 +714,100 @@ public class QuizService(
         string.IsNullOrWhiteSpace(nombre) ? null : nombre.Trim();
 
     /// <summary>
-    /// Las fases, siguiendo el orden de las preguntas, deben empezar en 1, no retroceder,
-    /// avanzar de una en una y mantener el mismo nombre dentro de cada fase.
+    /// Cada pool debe sacar al menos una pregunta; los manuales necesitan preguntas elegidas
+    /// (al menos tantas como salen) y los de filtros una dificultad válida.
     /// </summary>
-    private static UnitResult<QuizError> ValidateFases(IEnumerable<(int Numero, int Fase, string? Nombre, string? Color)> preguntas)
+    private static UnitResult<QuizError> ValidatePools(IReadOnlyList<FasePool> pools)
     {
-        var fase = 1;
+        foreach (var pool in pools)
+        {
+            var fase = $"La fase {pool.FaseNumero}";
+            if (pool.Cantidad < 1 || pool.Cantidad > OrigenesPool.CantidadMaxima)
+            {
+                return UnitResult.Failure<QuizError>(new QuizValidationError(
+                    $"{fase} debe sacar entre 1 y {OrigenesPool.CantidadMaxima} preguntas del banco"));
+            }
+
+            if (!OrigenesPool.EsValido(pool.Origen))
+            {
+                return UnitResult.Failure<QuizError>(new QuizValidationError(
+                    $"Origen de pool no válido: \"{pool.Origen}\". Usa manual o filtros."));
+            }
+
+            if (pool.Origen.Trim().ToLowerInvariant() == OrigenesPool.Manual)
+            {
+                var elegidas = pool.Preguntas.Where(p => p.Id > 0).Select(p => p.Id).Distinct().Count();
+                if (elegidas == 0)
+                {
+                    return UnitResult.Failure<QuizError>(new QuizValidationError(
+                        $"{fase} no tiene preguntas del banco elegidas para su pool"));
+                }
+
+                if (pool.Cantidad > elegidas)
+                {
+                    return UnitResult.Failure<QuizError>(new QuizValidationError(
+                        $"{fase} saca {pool.Cantidad} preguntas pero solo tiene {elegidas} elegidas"));
+                }
+            }
+            else if (!Dificultades.EsValida(pool.Dificultad))
+            {
+                return UnitResult.Failure<QuizError>(new QuizValidationError(
+                    $"Dificultad no válida: \"{pool.Dificultad}\". Usa facil, media o dificil."));
+            }
+        }
+
+        return UnitResult.Success<QuizError>();
+    }
+
+    /// <summary>
+    /// Las fases (las de preguntas y las de pool juntas) deben ir de 1 a n sin huecos. Una fase de
+    /// pool no puede tener preguntas propias. Siguiendo el orden de las preguntas, las fases no
+    /// retroceden y mantienen el mismo nombre y color dentro de cada fase.
+    /// </summary>
+    private static UnitResult<QuizError> ValidateFases(
+        IEnumerable<(int Numero, int Fase, string? Nombre, string? Color)> preguntas, IEnumerable<int> fasesPool)
+    {
+        var ordenadas = preguntas.OrderBy(p => p.Numero).ToList();
+        var pools = fasesPool.ToList();
+
+        if (pools.Count != pools.Distinct().Count())
+        {
+            return UnitResult.Failure<QuizError>(new QuizValidationError("Hay dos pools en la misma fase"));
+        }
+
+        var conPreguntas = ordenadas.Select(p => p.Fase).ToHashSet();
+        var mixta = pools.FirstOrDefault(conPreguntas.Contains);
+        if (mixta != 0)
+        {
+            return UnitResult.Failure<QuizError>(new QuizValidationError(
+                $"La fase {mixta} no puede tener pool y preguntas propias a la vez"));
+        }
+
+        var numeros = conPreguntas.Concat(pools).Distinct().Order().ToList();
+        if (numeros.Count > 0 && numeros[0] != 1)
+        {
+            return UnitResult.Failure<QuizError>(new QuizValidationError("Las fases deben empezar en 1"));
+        }
+
+        if (numeros.Count > 0 && numeros[^1] != numeros.Count)
+        {
+            return UnitResult.Failure<QuizError>(
+                new QuizValidationError("Las fases deben ser consecutivas y no puede haber fases vacías"));
+        }
+
+        var fase = 0;
         string? nombreFase = null;
         string? colorFase = null;
         var primera = true;
 
-        foreach (var (_, faseActual, nombreRaw, colorRaw) in preguntas.OrderBy(p => p.Numero))
+        foreach (var (_, faseActual, nombreRaw, colorRaw) in ordenadas)
         {
             var nombre = NormalizeFaseNombre(nombreRaw);
             var color = FaseColores.NormalizarOSinColor(colorRaw);
 
             if (primera)
             {
-                if (faseActual != 1)
-                {
-                    return UnitResult.Failure<QuizError>(new QuizValidationError("Las fases deben empezar en 1"));
-                }
+                fase = faseActual;
                 nombreFase = nombre;
                 colorFase = color;
                 primera = false;
@@ -743,8 +828,9 @@ public class QuizService(
                         new QuizValidationError($"Las preguntas de la fase {fase} deben tener el mismo color de fase"));
                 }
             }
-            else if (faseActual == fase + 1)
+            else if (faseActual > fase)
             {
+                // Las fases intermedias, si las hay, son de pool (comprobado arriba)
                 fase = faseActual;
                 nombreFase = nombre;
                 colorFase = color;
@@ -761,7 +847,7 @@ public class QuizService(
 
     private UnitResult<QuizError> ValidateUpdateRequest(UpdateQuizRequest request)
     {
-        if (request.Preguntas == null || request.Preguntas.Count == 0)
+        if ((request.Preguntas == null || request.Preguntas.Count == 0) && request.Pools.Count == 0)
         {
             return UnitResult.Failure<QuizError>(new QuizValidationError("Debe haber al menos una pregunta"));
         }
@@ -797,10 +883,15 @@ public class QuizService(
         var tipo = ValidateTipos(request.Preguntas.Select(p => p.Tipo));
         if (tipo.IsFailure) return tipo;
 
-        var color = ValidateColores(request.Preguntas.Select(p => p.FaseColor));
+        var color = ValidateColores(request.Preguntas.Select(p => p.FaseColor).Concat(request.Pools.Select(p => p.FaseColor)));
         if (color.IsFailure) return color;
 
-        return ValidateFases(request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre, p.FaseColor)));
+        var pools = ValidatePools(request.Pools);
+        if (pools.IsFailure) return pools;
+
+        return ValidateFases(
+            request.Preguntas.Select(p => (p.NumeroPregunta, p.FaseNumero, p.FaseNombre, p.FaseColor)),
+            request.Pools.Select(p => p.FaseNumero));
     }
 
     private async Task<string> GenerateUniqueGameCodeAsync()

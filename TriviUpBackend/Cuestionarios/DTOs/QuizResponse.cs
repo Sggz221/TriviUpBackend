@@ -32,6 +32,10 @@ public record QuizResponse
     [property: JsonPropertyName("preguntas")]
     public List<PreguntaResponse> Preguntas { get; init; } = new();
 
+    /// <summary>Fases con pool de preguntas del banco.</summary>
+    [property: JsonPropertyName("pools")]
+    public List<FasePool> Pools { get; init; } = new();
+
     [property: JsonPropertyName("creatorId")]
     public long CreatorId { get; init; }
 
@@ -69,6 +73,7 @@ public record QuizResponse
                     .Select(r => new RespuestaResponse { Texto = r.Texto, EsCorrecta = r.EsCorrecta })
                     .ToList()
             }).ToList(),
+        Pools = contenido.Pools.Select(OrigenesPool.Normalizar).OrderBy(p => p.FaseNumero).ToList(),
         CreatorId = quiz.CreatorId,
         FechaCreacion = quiz.CreatedAt,
         FechaActualizacion = fecha
@@ -86,6 +91,7 @@ public record QuizResponse
         EsBorrador = quiz.EsBorrador,
         Version = quiz.VersionPublicada,
         Preguntas = quiz.Preguntas.OrderBy(p => p.NumeroPregunta).Select(PreguntaResponse.FromEntity).ToList(),
+        Pools = quiz.Pools.OrderBy(p => p.FaseNumero).ToList(),
         CreatorId = quiz.CreatorId,
         FechaCreacion = quiz.CreatedAt,
         FechaActualizacion = quiz.UpdatedAt

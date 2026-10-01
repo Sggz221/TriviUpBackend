@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json;
 using TriviUpBackend.Data;
 
 namespace TriviUpBackend.Cuestionarios.Entities;
@@ -23,6 +24,19 @@ public class Quiz : ITimestamped
     public string GameCode { get; set; } = string.Empty;
 
     public List<Pregunta> Preguntas { get; set; } = new();
+
+    /// <summary>Fases con pool de preguntas del banco, serializadas (ver <see cref="Pools"/>).</summary>
+    public string? PoolsJson { get; set; }
+
+    /// <summary>Fases cuyas preguntas se sortean del banco del autor en cada partida.</summary>
+    [NotMapped]
+    public List<FasePool> Pools
+    {
+        get => string.IsNullOrEmpty(PoolsJson)
+            ? new List<FasePool>()
+            : JsonSerializer.Deserialize<List<FasePool>>(PoolsJson, JsonSerializerOptions.Web) ?? new List<FasePool>();
+        set => PoolsJson = value.Count == 0 ? null : JsonSerializer.Serialize(value, JsonSerializerOptions.Web);
+    }
 
     [Required]
     public long CreatorId { get; set; }

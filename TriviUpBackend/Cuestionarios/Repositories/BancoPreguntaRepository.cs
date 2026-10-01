@@ -16,6 +16,23 @@ public class BancoPreguntaRepository(Context context) : IBancoPreguntaRepository
             .Where(p => p.CreatorId == creatorId && ids.Contains(p.Id))
             .ToListAsync();
 
+    public async Task<List<long>> FindIdsAsync(long creatorId, long? categoriaId, string? dificultad)
+    {
+        var query = context.BancoPreguntas.Where(p => p.CreatorId == creatorId);
+        if (categoriaId.HasValue)
+        {
+            query = query.Where(p => p.CategoriaId == categoriaId.Value);
+        }
+
+        var normalizada = Dificultades.Normalizar(dificultad);
+        if (normalizada is not null)
+        {
+            query = query.Where(p => p.Dificultad == normalizada);
+        }
+
+        return await query.Select(p => p.Id).ToListAsync();
+    }
+
     public async Task<(List<BancoPregunta> Items, int Total)> FindByCreatorAsync(
         long creatorId, string? search, long? categoriaId, bool sinCategoria, string? dificultad, int page, int pageSize)
     {

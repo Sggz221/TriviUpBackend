@@ -370,14 +370,23 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         session.State = GameState.Starting;
 
+        var random = new Random();
         List<Pregunta> questions;
         using (var scope = _scopeFactory.CreateScope())
         {
             var repository = scope.ServiceProvider.GetRequiredService<IQuizRepository>();
-            questions = await repository.GetQuestionsWithAnswersAsync(session.QuizId);
+            questions = await repository.GetQuestionsWithAnswersAsync(session.QuizId) ?? [];
+
+            // Fases con pool: sus preguntas se sortean ahora del banco del autor
+            var quiz = await repository.FindByIdAsync(session.QuizId);
+            if (quiz is not null && quiz.Pools.Count > 0)
+            {
+                var banco = scope.ServiceProvider.GetRequiredService<IBancoPreguntaRepository>();
+                questions = questions.Concat(await PoolDrawer.DrawAsync(quiz, banco, random)).ToList();
+            }
         }
 
-        if (questions is null || questions.Count == 0)
+        if (questions.Count == 0)
         {
             _logger.LogWarning("No questions found for quiz {QuizId} in room {RoomCode}", session.QuizId, roomCode);
             session.State = GameState.Waiting;
@@ -385,7 +394,15 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return null;
         }
 
-        var random = new Random();
+        // Un pool sin preguntas disponibles deja su fase vacía y no se juega: se renumeran las
+        // fases que quedan para que la partida muestre "Fase 2 / 2" y no "Fase 3 / 2".
+        var renumeracion = questions.Select(q => q.FaseNumero).Distinct().Order()
+            .Select((fase, i) => (fase, nueva: i + 1)).ToDictionary(x => x.fase, x => x.nueva);
+        foreach (var question in questions)
+        {
+            question.FaseNumero = renumeracion[question.FaseNumero];
+        }
+
         // Las fases se juegan en orden; el azar solo reordena las preguntas dentro de cada fase.
         questions = questions
             .GroupBy(q => q.FaseNumero)

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TriviUpBackend.Cuestionarios.Entities;
 
 namespace TriviUpBackend.Cuestionarios.DTOs;
 
@@ -30,6 +31,11 @@ public record CreateQuizRequest
     /// </summary>
     [Required(ErrorMessage = "Las preguntas son obligatorias")]
     public List<CreatePreguntaRequest> Preguntas { get; init; } = new();
+
+    /// <summary>
+    /// Fases con pool: sus preguntas se sortean del banco en cada partida (no llevan preguntas propias).
+    /// </summary>
+    public List<FasePool> Pools { get; init; } = new();
 }
 
 /// <summary>
