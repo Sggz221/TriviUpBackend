@@ -769,6 +769,31 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         return Result.Success();
     }
 
+    /// <summary>Índices de respuestas incorrectas que aún no se han eliminado en la pregunta en curso.</summary>
+    private static List<int> IncorrectAnswersLeft(GameSessionDocument session, QuestionSnapshot question) =>
+        Enumerable.Range(0, question.Respuestas.Count)
+            .Where(i => !question.Respuestas[i].EsCorrecta && !session.EliminatedAnswerIndexes.Contains(i))
+            .ToList();
+
+    /// <summary>
+    /// Elimina al azar hasta <paramref name="count"/> respuestas incorrectas. Si el anfitrión tenía marcada una de
+    /// ellas, la desmarca (<c>Unmarked</c>).
+    /// </summary>
+    private static (List<int> Eliminated, bool Unmarked) EliminateIncorrectAnswers(
+        GameSessionDocument session, QuestionSnapshot question, int count)
+    {
+        var eliminated = IncorrectAnswersLeft(session, question)
+            .OrderBy(_ => Random.Shared.Next()).Take(count).OrderBy(i => i).ToList();
+        session.EliminatedAnswerIndexes.AddRange(eliminated);
+        var unmarked = false;
+        if (session.MarkedAnswerIndex is { } marked && eliminated.Contains(marked))
+        {
+            session.MarkedAnswerIndex = null;
+            unmarked = true;
+        }
+        return (eliminated, unmarked);
+    }
+
     /// <inheritdoc />
     public async Task<Result<ComodinUsedDto>> UseComodinAsync(
         string roomCode, long userId, ComodinTipo tipo, long questionId, bool? predictsCorrect = null)
@@ -842,19 +867,10 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         {
             case ComodinTipo.Ruleta:
             {
-                var candidates = Enumerable.Range(0, question.Respuestas.Count)
-                    .Where(i => !question.Respuestas[i].EsCorrecta && !session.EliminatedAnswerIndexes.Contains(i))
-                    .ToList();
                 var (hueco, valor) = ComodinReglas.TirarRuleta(Random.Shared);
                 ruletaHueco = hueco;
-                eliminated = candidates.OrderBy(_ => Random.Shared.Next()).Take(valor).OrderBy(i => i).ToList();
+                (eliminated, unmarked) = EliminateIncorrectAnswers(session, question, valor);
                 ruletaResultado = eliminated.Count;
-                session.EliminatedAnswerIndexes.AddRange(eliminated);
-                if (session.MarkedAnswerIndex is { } marked && eliminated.Contains(marked))
-                {
-                    session.MarkedAnswerIndex = null;
-                    unmarked = true;
-                }
 
                 // El giro no descuenta tiempo: el plazo del turno se alarga lo que dura la animación.
                 if (session.TurnDeadlineUnixMs.HasValue)
@@ -862,6 +878,12 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                     session.TurnDeadlineUnixMs += ComodinReglas.DuracionRuletaMs;
                     await _store.ScheduleDeadlineAsync(roomCode, session.TurnDeadlineUnixMs.Value, session.TurnGeneration);
                 }
+                break;
+            }
+            case ComodinTipo.CincuentaCincuenta:
+            {
+                var incorrectas = IncorrectAnswersLeft(session, question).Count;
+                (eliminated, unmarked) = EliminateIncorrectAnswers(session, question, ComodinReglas.EliminadasCincuentaCincuenta(incorrectas));
                 break;
             }
             case ComodinTipo.DobleONada:

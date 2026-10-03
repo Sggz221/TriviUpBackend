@@ -14,7 +14,9 @@ public enum ComodinTipo
     /// <summary>Fuera de turno: apuesta si el jugador en turno acertará o fallará.</summary>
     Apuesta,
     /// <summary>Turno propio, solo en modo Presencial: el equipo llama a un amigo y se muestra un cartel hasta que el anfitrión lo quita.</summary>
-    Llamada
+    Llamada,
+    /// <summary>Turno propio: elimina la mitad (redondeando a la baja) de las respuestas incorrectas que quedan.</summary>
+    CincuentaCincuenta
 }
 
 /// <summary>
@@ -66,7 +68,7 @@ public static class ComodinReglas
             .ToDictionary(x => x.Key, x => x.Restantes);
 
     /// <summary>true si el comodín se usa durante el turno propio; false si fuera de él.</summary>
-    public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada or ComodinTipo.Llamada;
+    public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada or ComodinTipo.Llamada or ComodinTipo.CincuentaCincuenta;
 
     /// <summary>
     /// Huecos de la ruleta en orden horario desde arriba; cada uno dice cuántas respuestas
@@ -82,6 +84,9 @@ public static class ComodinReglas
     /// se alarga este tiempo para que el giro no le coma segundos.
     /// </summary>
     public const int DuracionRuletaMs = 17000;
+
+    /// <summary>Respuestas incorrectas que elimina el 50/50 de las que quedan: la mitad, redondeando a la baja.</summary>
+    public static int EliminadasCincuentaCincuenta(int incorrectasRestantes) => incorrectasRestantes / 2;
 
     /// <summary>Tira la ruleta: hueco en el que cae y su valor (respuestas incorrectas a eliminar, 0-3).</summary>
     public static (int Hueco, int Valor) TirarRuleta(Random random)
