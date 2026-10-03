@@ -579,6 +579,90 @@ public class GameServiceComodinesTests
         Assert.True((await UseAsync(roomCode, thief, ComodinTipo.Apuesta, Current(s).Id, true)).IsFailure);
     }
 
+    // ========== Ocultar texto ==========
+
+    [Fact]
+    public async Task OcultarTexto_HidesTextForTheAnsweringPlayer_AndBlocksStealing()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var answering = s.GetCurrentPlayerId()!.Value;
+        var attacker = Bystander(s);
+
+        var result = await UseAsync(roomCode, attacker, ComodinTipo.OcultarTexto, Current(s).Id);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(answering, result.Value.TargetPlayerId);
+        var after = await SessionAsync(roomCode);
+        Assert.Equal(answering, after.TextHiddenForPlayerId);
+        Assert.True(after.ComodinUsedOnQuestion);
+        Assert.Contains(_sent, m => m.Method == "ComodinUsed");
+        Assert.True((await UseAsync(roomCode, Bystander(s, attacker), ComodinTipo.Robo, Current(s).Id)).IsFailure);
+    }
+
+    [Fact]
+    public async Task OcultarTexto_IsRecoveredOnRejoin_AndClearedOnNextQuestion()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var answering = s.GetCurrentPlayerId()!.Value;
+        await UseAsync(roomCode, Bystander(s), ComodinTipo.OcultarTexto, Current(s).Id);
+
+        var rejoin = await _service.GetRejoinStateAsync(roomCode);
+        Assert.Equal(answering, rejoin!.Turn!.TextHiddenForPlayerId);
+
+        await _service.SubmitAnswerAsync(roomCode, answering, Current(s).Id, CorrectIndex(s));
+        var next = await SessionAsync(roomCode);
+        Assert.Null(next.TextHiddenForPlayerId);
+        Assert.Null((await _service.GetRejoinStateAsync(roomCode))!.Turn!.TextHiddenForPlayerId);
+    }
+
+    [Fact]
+    public async Task OcultarTexto_OwnTurn_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+
+        var result = await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.OcultarTexto, Current(s).Id);
+
+        Assert.True(result.IsFailure);
+        Assert.Null((await SessionAsync(roomCode)).TextHiddenForPlayerId);
+    }
+
+    [Fact]
+    public async Task OcultarTexto_TwiceOnTheSameQuestion_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var first = Bystander(s);
+        await UseAsync(roomCode, first, ComodinTipo.OcultarTexto, Current(s).Id);
+
+        var result = await UseAsync(roomCode, Bystander(s, first), ComodinTipo.OcultarTexto, Current(s).Id);
+
+        Assert.True(result.IsFailure);
+    }
+
+    [Fact]
+    public async Task OcultarTexto_DuringSteal_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var thief = Bystander(s);
+        Assert.True((await UseAsync(roomCode, thief, ComodinTipo.Robo, Current(s).Id)).IsSuccess);
+
+        var result = await UseAsync(roomCode, Bystander(s, thief), ComodinTipo.OcultarTexto, Current(s).Id);
+
+        Assert.True(result.IsFailure);
+    }
+
+    [Fact]
+    public void OcultarTexto_ExistsOnlyInNormalMode()
+    {
+        Assert.Contains(ComodinTipo.OcultarTexto, ComodinReglas.Disponibles(GameMode.Normal));
+        Assert.DoesNotContain(ComodinTipo.OcultarTexto, ComodinReglas.Disponibles(GameMode.Presencial));
+        Assert.False(ComodinReglas.EsDeTurno(ComodinTipo.OcultarTexto));
+    }
+
     // ========== Pasar ==========
 
     [Fact]
@@ -800,7 +884,7 @@ public class GameServiceComodinesTests
         var s = await SessionAsync(roomCode);
         var player = s.Players.First(p => p.CanPlay());
 
-        Assert.Equal(6, player.AvailableComodines(s.Mode, s.ComodinUsos).Count);
+        Assert.Equal(7, player.AvailableComodines(s.Mode, s.ComodinUsos).Count);
         Assert.All(player.RemainingUses(s.Mode, s.ComodinUsos).Values, v => Assert.Equal(1, v));
     }
 
@@ -959,8 +1043,8 @@ public class GameServiceComodinesTests
 
         var players = (await _service.GetRejoinStateAsync(roomCode))!.GameState.Players;
         Assert.Empty(players.Single(p => p.UserId == Owner).AvailableComodines!);
-        Assert.Equal(["DobleONada", "Robo", "Apuesta", "CincuentaCincuenta", "Pasar"], players.Single(p => p.UserId == s.GetCurrentPlayerId()).AvailableComodines);
-        Assert.Equal(6, players.Single(p => p.UserId == Bystander(s)).AvailableComodines!.Count);
+        Assert.Equal(["DobleONada", "Robo", "Apuesta", "CincuentaCincuenta", "Pasar", "OcultarTexto"], players.Single(p => p.UserId == s.GetCurrentPlayerId()).AvailableComodines);
+        Assert.Equal(7, players.Single(p => p.UserId == Bystander(s)).AvailableComodines!.Count);
     }
 
     // ========== Bonus de tiempo en el servidor ==========

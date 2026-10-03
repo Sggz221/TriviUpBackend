@@ -65,6 +65,9 @@ public sealed class GameSessionDocument
     /// <summary>Se ha usado algún comodín en la pregunta actual: a partir de ahí no se puede robar.</summary>
     public bool ComodinUsedOnQuestion { get; set; }
 
+    /// <summary>Jugador al que se le oculta el texto de las respuestas en la pregunta actual (null = nadie).</summary>
+    public long? TextHiddenForPlayerId { get; set; }
+
     /// <summary>Llamada en curso: el cartel sigue en pantalla hasta que el anfitrión lo quita.</summary>
     public bool CallActive { get; set; }
 
@@ -95,6 +98,7 @@ public sealed class GameSessionDocument
         DoubleOrNothingPlayers = new();
         Bets = new();
         ComodinUsedOnQuestion = false;
+        TextHiddenForPlayerId = null;
         CallActive = false;
         BuzzerOpen = false;
         BuzzWinnerId = null;

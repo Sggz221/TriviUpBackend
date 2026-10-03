@@ -887,6 +887,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         int? ruletaResultado = null;
         int? ruletaHueco = null;
         long? stolenFrom = null;
+        long? targetPlayer = null;
         var unmarked = false;
 
         switch (tipo)
@@ -917,6 +918,22 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 {
                     return Result.Failure<ComodinUsedDto>("No se puede pasar una pregunta robada.");
                 }
+                break;
+            case ComodinTipo.OcultarTexto:
+                if (session.StealActive)
+                {
+                    return Result.Failure<ComodinUsedDto>("No se puede ocultar el texto mientras la pregunta está robada.");
+                }
+                if (session.TextHiddenForPlayerId.HasValue)
+                {
+                    return Result.Failure<ComodinUsedDto>("El texto de esta pregunta ya está oculto.");
+                }
+                if (answeringId is null)
+                {
+                    return Result.Failure<ComodinUsedDto>("Nadie está respondiendo ahora mismo.");
+                }
+                targetPlayer = answeringId;
+                session.TextHiddenForPlayerId = answeringId;
                 break;
             case ComodinTipo.DobleONada:
                 session.DoubleOrNothingPlayers.Add(userId);
@@ -971,7 +988,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             userId, player.Username, tipo.ToString(), question.Id, ComodinNames(player.AvailableComodines(session.Mode, session.ComodinUsos)),
             eliminated, ruletaResultado, tipo == ComodinTipo.Apuesta ? predictsCorrect : null, stolenFrom,
             ruletaHueco, ruletaHueco.HasValue ? ComodinReglas.DuracionRuletaMs : null,
-            UsesByName(player.RemainingUses(session.Mode, session.ComodinUsos)));
+            UsesByName(player.RemainingUses(session.Mode, session.ComodinUsos)), targetPlayer);
 
         using (var scope = _scopeFactory.CreateScope())
         {
@@ -1622,7 +1639,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.ComodinUsedOnQuestion,
             session.CallActive,
             question.EsPulsador,
-            session.BuzzerOpen
+            session.BuzzerOpen,
+            session.TextHiddenForPlayerId
         );
     }
 

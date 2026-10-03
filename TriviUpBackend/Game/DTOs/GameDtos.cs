@@ -106,7 +106,9 @@ public record ComodinUsedDto(
     long? StolenFromPlayerId = null,
     int? RuletaHueco = null,
     int? RuletaDuracionMs = null,
-    Dictionary<string, int>? RemainingUses = null
+    Dictionary<string, int>? RemainingUses = null,
+    /// <summary>Jugador afectado por el comodín (Ocultar texto: quien responde).</summary>
+    long? TargetPlayerId = null
 );
 
 /// <summary>
@@ -168,7 +170,9 @@ public record TurnStartedDto(
     bool ComodinUsed = false,
     bool CallActive = false,
     bool IsDynamic = false,
-    bool BuzzerOpen = false
+    bool BuzzerOpen = false,
+    /// <summary>Jugador al que se le oculta el texto de las respuestas en esta pregunta (null = nadie).</summary>
+    long? TextHiddenForPlayerId = null
 );
 
 /// <summary>

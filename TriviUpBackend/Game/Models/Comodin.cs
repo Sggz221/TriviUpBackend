@@ -18,7 +18,9 @@ public enum ComodinTipo
     /// <summary>Turno propio: elimina la mitad (redondeando a la baja) de las respuestas incorrectas que quedan.</summary>
     CincuentaCincuenta,
     /// <summary>Turno propio: salta la pregunta sin responderla. No suma ni resta puntos, la pregunta se descarta y pasa el turno.</summary>
-    Pasar
+    Pasar,
+    /// <summary>Fuera de turno, solo en modo Normal: oculta el texto de las respuestas de quien está respondiendo durante toda la pregunta.</summary>
+    OcultarTexto
 }
 
 /// <summary>
@@ -28,9 +30,17 @@ public static class ComodinReglas
 {
     public static readonly IReadOnlyList<ComodinTipo> Todos = Enum.GetValues<ComodinTipo>();
 
-    /// <summary>Comodines que existen en un modo de juego: la Llamada solo en Presencial.</summary>
+    /// <summary>
+    /// Comodines que existen en un modo de juego: la Llamada solo en Presencial y Ocultar texto solo en Normal
+    /// (en presencial los jugadores no leen las respuestas en su dispositivo).
+    /// </summary>
     public static IEnumerable<ComodinTipo> Disponibles(GameMode modo) =>
-        Todos.Where(c => c != ComodinTipo.Llamada || modo == GameMode.Presencial);
+        Todos.Where(c => c switch
+        {
+            ComodinTipo.Llamada => modo == GameMode.Presencial,
+            ComodinTipo.OcultarTexto => modo == GameMode.Normal,
+            _ => true
+        });
 
     /// <summary>Máximo de usos por partida que el anfitrión puede dar a un comodín.</summary>
     public const int MaxUsos = 99;
