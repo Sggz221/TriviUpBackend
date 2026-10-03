@@ -20,7 +20,11 @@ public enum ComodinTipo
     /// <summary>Turno propio: salta la pregunta sin responderla. No suma ni resta puntos, la pregunta se descarta y pasa el turno.</summary>
     Pasar,
     /// <summary>Fuera de turno, solo en modo Normal: oculta el texto de las respuestas de quien está respondiendo durante toda la pregunta.</summary>
-    OcultarTexto
+    OcultarTexto,
+    /// <summary>Turno propio: cambia tu pregunta por otra aún no jugada de la misma fase (la actual sale más adelante).</summary>
+    CambiarPregunta,
+    /// <summary>Fuera de turno: cambia la pregunta de quien responde por otra aún no jugada de la misma fase.</summary>
+    CambiarPreguntaRival
 }
 
 /// <summary>
@@ -80,7 +84,7 @@ public static class ComodinReglas
             .ToDictionary(x => x.Key, x => x.Restantes);
 
     /// <summary>true si el comodín se usa durante el turno propio; false si fuera de él.</summary>
-    public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada or ComodinTipo.Llamada or ComodinTipo.CincuentaCincuenta or ComodinTipo.Pasar;
+    public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada or ComodinTipo.Llamada or ComodinTipo.CincuentaCincuenta or ComodinTipo.Pasar or ComodinTipo.CambiarPregunta;
 
     /// <summary>
     /// Huecos de la ruleta en orden horario desde arriba; cada uno dice cuántas respuestas

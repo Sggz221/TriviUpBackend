@@ -663,6 +663,122 @@ public class GameServiceComodinesTests
         Assert.False(ComodinReglas.EsDeTurno(ComodinTipo.OcultarTexto));
     }
 
+    // ========== Cambiar pregunta ==========
+
+    [Fact]
+    public async Task CambiarPregunta_SwapsWithAnUnplayedQuestion_AndRestartsTheTurn()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var player = s.GetCurrentPlayerId()!.Value;
+        var oldId = Current(s).Id;
+        var idsBefore = s.Questions.Select(q => q.Id).OrderBy(i => i).ToList();
+        var generationBefore = s.TurnGeneration;
+        await UseAsync(roomCode, player, ComodinTipo.Ruleta, oldId);
+
+        var result = await UseAsync(roomCode, player, ComodinTipo.CambiarPregunta, oldId);
+
+        Assert.True(result.IsSuccess);
+        var after = await SessionAsync(roomCode);
+        Assert.NotEqual(oldId, Current(after).Id);
+        Assert.Contains(after.Questions.Skip(1), q => q.Id == oldId);
+        Assert.Equal(idsBefore, after.Questions.Select(q => q.Id).OrderBy(i => i).ToList());
+        Assert.Empty(after.EliminatedAnswerIndexes);
+        Assert.True(after.TurnGeneration > generationBefore);
+        Assert.Equal(player, after.GetCurrentPlayerId());
+        Assert.Equal(0, after.CurrentQuestionIndex);
+
+        var started = _sent.Where(m => m.Method == "TurnStarted").Select(m => (TurnStartedDto)m.Payload!).Last();
+        Assert.Equal(Current(after).Id, started.Question.Id);
+        Assert.Equal(Current(after).Id, (await _service.GetRejoinStateAsync(roomCode))!.Turn!.Question.Id);
+    }
+
+    [Fact]
+    public async Task CambiarPreguntaRival_ChangesTheQuestionOfWhoIsAnswering()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var answering = s.GetCurrentPlayerId()!.Value;
+        var oldId = Current(s).Id;
+
+        var result = await UseAsync(roomCode, Bystander(s), ComodinTipo.CambiarPreguntaRival, oldId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(answering, result.Value.TargetPlayerId);
+        var after = await SessionAsync(roomCode);
+        Assert.NotEqual(oldId, Current(after).Id);
+        Assert.Equal(answering, after.GetCurrentPlayerId());
+        Assert.True(after.ComodinUsedOnQuestion);
+        Assert.Equal(0, after.Players.Single(p => p.UserId == answering).Score);
+    }
+
+    [Fact]
+    public async Task CambiarPregunta_WrongSideOfTheTurn_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+
+        Assert.True((await UseAsync(roomCode, Bystander(s), ComodinTipo.CambiarPregunta, Current(s).Id)).IsFailure);
+        Assert.True((await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.CambiarPreguntaRival, Current(s).Id)).IsFailure);
+        Assert.Equal(Current(s).Id, Current(await SessionAsync(roomCode)).Id);
+    }
+
+    [Fact]
+    public async Task CambiarPregunta_NoUnplayedQuestionInThePhase_FailsWithoutSpendingTheComodin()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        // Las que quedan son de otra fase: no valen
+        foreach (var q in s.Questions.Skip(1)) q.FaseNumero = 2;
+        await _store.SaveAsync(s);
+        var player = s.GetCurrentPlayerId()!.Value;
+
+        var result = await UseAsync(roomCode, player, ComodinTipo.CambiarPregunta, Current(s).Id);
+
+        Assert.True(result.IsFailure);
+        var after = await SessionAsync(roomCode);
+        Assert.Empty(after.Players.Single(p => p.UserId == player).UsedComodines);
+        Assert.Equal(Current(s).Id, Current(after).Id);
+    }
+
+    [Fact]
+    public async Task CambiarPregunta_OnLastQuestion_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        s.CurrentQuestionIndex = s.Questions.Count - 1;
+        await _store.SaveAsync(s);
+
+        Assert.True((await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.CambiarPregunta, Current(s).Id)).IsFailure);
+    }
+
+    [Fact]
+    public async Task CambiarPregunta_DuringSteal_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var thief = Bystander(s);
+        Assert.True((await UseAsync(roomCode, thief, ComodinTipo.Robo, Current(s).Id)).IsSuccess);
+
+        var result = await UseAsync(roomCode, thief, ComodinTipo.CambiarPregunta, Current(s).Id);
+
+        Assert.True(result.IsFailure);
+    }
+
+    [Fact]
+    public async Task CambiarPregunta_DoesNotChangeHowManyQuestionsEachPlayerAnswers()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var total = s.Questions.Count;
+        await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.CambiarPregunta, Current(s).Id);
+
+        var after = await SessionAsync(roomCode);
+
+        Assert.Equal(total, after.Questions.Count);
+        Assert.Equal(s.TurnQueue, after.TurnQueue);
+    }
+
     // ========== Pasar ==========
 
     [Fact]
@@ -884,7 +1000,7 @@ public class GameServiceComodinesTests
         var s = await SessionAsync(roomCode);
         var player = s.Players.First(p => p.CanPlay());
 
-        Assert.Equal(7, player.AvailableComodines(s.Mode, s.ComodinUsos).Count);
+        Assert.Equal(9, player.AvailableComodines(s.Mode, s.ComodinUsos).Count);
         Assert.All(player.RemainingUses(s.Mode, s.ComodinUsos).Values, v => Assert.Equal(1, v));
     }
 
@@ -1043,8 +1159,8 @@ public class GameServiceComodinesTests
 
         var players = (await _service.GetRejoinStateAsync(roomCode))!.GameState.Players;
         Assert.Empty(players.Single(p => p.UserId == Owner).AvailableComodines!);
-        Assert.Equal(["DobleONada", "Robo", "Apuesta", "CincuentaCincuenta", "Pasar", "OcultarTexto"], players.Single(p => p.UserId == s.GetCurrentPlayerId()).AvailableComodines);
-        Assert.Equal(7, players.Single(p => p.UserId == Bystander(s)).AvailableComodines!.Count);
+        Assert.Equal(["DobleONada", "Robo", "Apuesta", "CincuentaCincuenta", "Pasar", "OcultarTexto", "CambiarPregunta", "CambiarPreguntaRival"], players.Single(p => p.UserId == s.GetCurrentPlayerId()).AvailableComodines);
+        Assert.Equal(9, players.Single(p => p.UserId == Bystander(s)).AvailableComodines!.Count);
     }
 
     // ========== Bonus de tiempo en el servidor ==========

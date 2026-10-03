@@ -795,6 +795,19 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         return Result.Success();
     }
 
+    /// <summary>
+    /// Pregunta por la que cambiar la actual: una aún no jugada de la misma fase (sin pulsador), al azar.
+    /// Se intercambian de sitio, así que nada se repite ni se pierde y el total de preguntas no cambia.
+    /// </summary>
+    private static int? PickReplacementQuestionIndex(GameSessionDocument session)
+    {
+        var current = session.Questions[session.CurrentQuestionIndex];
+        var candidates = Enumerable.Range(session.CurrentQuestionIndex + 1, session.Questions.Count - session.CurrentQuestionIndex - 1)
+            .Where(i => session.Questions[i].FaseNumero == current.FaseNumero && !session.Questions[i].EsPulsador)
+            .ToList();
+        return candidates.Count == 0 ? null : candidates[Random.Shared.Next(candidates.Count)];
+    }
+
     /// <summary>Índices de respuestas incorrectas que aún no se han eliminado en la pregunta en curso.</summary>
     private static List<int> IncorrectAnswersLeft(GameSessionDocument session, QuestionSnapshot question) =>
         Enumerable.Range(0, question.Respuestas.Count)
@@ -888,6 +901,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         int? ruletaHueco = null;
         long? stolenFrom = null;
         long? targetPlayer = null;
+        var questionChanged = false;
         var unmarked = false;
 
         switch (tipo)
@@ -919,6 +933,27 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                     return Result.Failure<ComodinUsedDto>("No se puede pasar una pregunta robada.");
                 }
                 break;
+            case ComodinTipo.CambiarPregunta:
+            case ComodinTipo.CambiarPreguntaRival:
+            {
+                if (session.StealActive)
+                {
+                    return Result.Failure<ComodinUsedDto>("No se puede cambiar una pregunta robada.");
+                }
+                var replacementIndex = PickReplacementQuestionIndex(session);
+                if (replacementIndex is null)
+                {
+                    return Result.Failure<ComodinUsedDto>("No quedan preguntas de esta fase para cambiar.");
+                }
+                (session.Questions[session.CurrentQuestionIndex], session.Questions[replacementIndex.Value]) =
+                    (session.Questions[replacementIndex.Value], session.Questions[session.CurrentQuestionIndex]);
+                // Lo eliminado o marcado era de la pregunta anterior.
+                session.EliminatedAnswerIndexes.Clear();
+                session.MarkedAnswerIndex = null;
+                if (tipo == ComodinTipo.CambiarPreguntaRival) targetPlayer = answeringId;
+                questionChanged = true;
+                break;
+            }
             case ComodinTipo.OcultarTexto:
                 if (session.StealActive)
                 {
@@ -996,12 +1031,21 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             await hubContext.Clients.Group(roomCode).SendAsync("ComodinUsed", dto);
         }
 
-        if (unmarked)
+        if (unmarked && !questionChanged)
         {
             await BroadcastAnswerMarkedAsync(session);
         }
 
-        if (tipo == ComodinTipo.Pasar)
+        if (questionChanged)
+        {
+            // Pregunta nueva para quien responde: tiempo completo, igual que al empezar el turno.
+            session.TurnStartedAt = DateTime.UtcNow;
+            session.TurnGeneration++;
+            await _store.ClearDeadlineAsync(roomCode);
+            await StartTurnDeadlineAsync(session);
+            await BroadcastTurnStartedAsync(session);
+        }
+        else if (tipo == ComodinTipo.Pasar)
         {
             await _store.ClearDeadlineAsync(roomCode);
             await PassQuestionAsync(session, player, question);
