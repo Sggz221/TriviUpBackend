@@ -598,7 +598,7 @@ public class GameServiceComodinesTests
     {
         var config = ComodinReglas.Normalizar(GameMode.Normal, new Dictionary<string, int>
         {
-            ["Ruleta"] = 99, ["robo"] = 2, ["Nope"] = 1, ["Llamada"] = 1, ["Apuesta"] = 0
+            ["Ruleta"] = 500, ["robo"] = 2, ["Nope"] = 1, ["Llamada"] = 1, ["Apuesta"] = 0
         });
 
         Assert.Equal(2, config!.Count);

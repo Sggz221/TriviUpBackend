@@ -29,7 +29,7 @@ public static class ComodinReglas
         Todos.Where(c => c != ComodinTipo.Llamada || modo == GameMode.Presencial);
 
     /// <summary>Máximo de usos por partida que el anfitrión puede dar a un comodín.</summary>
-    public const int MaxUsos = 5;
+    public const int MaxUsos = 99;
 
     /// <summary>
     /// Comodines activos y sus usos por jugador. <paramref name="config"/> null = los de cada modo, con 1 uso
