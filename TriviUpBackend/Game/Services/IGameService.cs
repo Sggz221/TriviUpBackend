@@ -154,6 +154,16 @@ public interface IGameService
     Task<Result> SetSpectatorAsync(string roomCode, long ownerId, long targetUserId, bool isSpectator);
 
     /// <summary>
+    /// El anfitrión devuelve a un jugador comodines ya usados: uno concreto o, con <paramref name="tipo"/>
+    /// null, todos. Solo durante la partida; difunde el PlayersList actualizado.
+    /// </summary>
+    /// <param name="roomCode">Código de la sala.</param>
+    /// <param name="ownerId">ID del propietario.</param>
+    /// <param name="targetUserId">ID del jugador que recupera el comodín.</param>
+    /// <param name="tipo">Comodín a revivir, o null para todos los usados.</param>
+    Task<Result> ReviveComodinAsync(string roomCode, long ownerId, long targetUserId, ComodinTipo? tipo);
+
+    /// <summary>
     /// Maneja la desconexión de un jugador.
     /// </summary>
     /// <param name="connectionId">ID de conexión SignalR.</param>

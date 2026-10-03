@@ -578,6 +578,74 @@ public class GameServiceComodinesTests
         Assert.True((await UseAsync(roomCode, thief, ComodinTipo.Apuesta, Current(s).Id, true)).IsFailure);
     }
 
+    // ========== Anfitrión revive comodines ==========
+
+    private async Task MarkUsedAsync(string roomCode, long userId, params ComodinTipo[] usados)
+    {
+        var s = await SessionAsync(roomCode);
+        s.Players.Single(p => p.UserId == userId).UsedComodines.AddRange(usados);
+        await _store.SaveAsync(s);
+    }
+
+    [Fact]
+    public async Task ReviveComodin_Owner_RestoresOneComodinAndBroadcastsPlayers()
+    {
+        var roomCode = await StartRoomAsync();
+        await MarkUsedAsync(roomCode, 200L, ComodinTipo.Ruleta, ComodinTipo.Robo);
+
+        var result = await _service.ReviveComodinAsync(roomCode, Owner, 200L, ComodinTipo.Ruleta);
+
+        Assert.True(result.IsSuccess);
+        var s = await SessionAsync(roomCode);
+        Assert.Equal([ComodinTipo.Robo], s.Players.Single(p => p.UserId == 200L).UsedComodines);
+        Assert.Contains(_sent, m => m.Method == "PlayersList");
+    }
+
+    [Fact]
+    public async Task ReviveComodin_WithoutTipo_RestoresAllUsed()
+    {
+        var roomCode = await StartRoomAsync();
+        await MarkUsedAsync(roomCode, 200L, ComodinTipo.Ruleta, ComodinTipo.Robo);
+
+        var result = await _service.ReviveComodinAsync(roomCode, Owner, 200L, null);
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty((await SessionAsync(roomCode)).Players.Single(p => p.UserId == 200L).UsedComodines);
+    }
+
+    [Fact]
+    public async Task ReviveComodin_NotOwner_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        await MarkUsedAsync(roomCode, 200L, ComodinTipo.Ruleta);
+
+        var result = await _service.ReviveComodinAsync(roomCode, 300L, 200L, ComodinTipo.Ruleta);
+
+        Assert.True(result.IsFailure);
+        Assert.Contains(ComodinTipo.Ruleta, (await SessionAsync(roomCode)).Players.Single(p => p.UserId == 200L).UsedComodines);
+    }
+
+    [Fact]
+    public async Task ReviveComodin_NothingToRevive_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+
+        var result = await _service.ReviveComodinAsync(roomCode, Owner, 200L, ComodinTipo.Ruleta);
+
+        Assert.True(result.IsFailure);
+    }
+
+    [Fact]
+    public async Task ReviveComodin_InLobby_Fails()
+    {
+        var roomCode = await _service.CreateGameAsync(1L, Owner, "owner", "conn-owner");
+        await _service.JoinGameAsync(roomCode, 200L, "p200", "conn-200");
+
+        var result = await _service.ReviveComodinAsync(roomCode, Owner, 200L, null);
+
+        Assert.True(result.IsFailure);
+    }
+
     // ========== Reglas generales ==========
 
     [Fact]

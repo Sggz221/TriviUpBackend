@@ -527,4 +527,31 @@ public class GameHub : Hub
             throw new HubException(result.Error);
         }
     }
+
+    /// <summary>
+    /// Anfitrión: devuelve a un jugador un comodín usado (o todos si <paramref name="tipo"/> es null).
+    /// GameService difunde el PlayersList actualizado a toda la sala.
+    /// </summary>
+    public async Task ReviveComodin(string roomCode, long targetUserId, string? tipo = null)
+    {
+        var ownerId = GetAuthenticatedUserId();
+
+        ComodinTipo? comodin = null;
+        if (!string.IsNullOrEmpty(tipo))
+        {
+            if (!Enum.TryParse<ComodinTipo>(tipo, ignoreCase: true, out var parsed) || !Enum.IsDefined(parsed))
+            {
+                throw new HubException("Comodín no válido.");
+            }
+            comodin = parsed;
+        }
+
+        var result = await _gameService.ReviveComodinAsync(roomCode, ownerId, targetUserId, comodin);
+        if (result.IsFailure)
+        {
+            _logger.LogWarning("Failed to revive comodín for {TargetUserId} in room {RoomCode} by {OwnerId}: {Error}",
+                targetUserId, roomCode, ownerId, result.Error);
+            throw new HubException(result.Error);
+        }
+    }
 }

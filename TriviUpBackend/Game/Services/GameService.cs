@@ -1170,6 +1170,33 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <inheritdoc />
+    public async Task<Result> ReviveComodinAsync(string roomCode, long ownerId, long targetUserId, ComodinTipo? tipo)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        if (session is null) return Result.Failure("Room not found.");
+        if (session.OwnerId != ownerId) return Result.Failure("Only the owner can revive comodines.");
+        if (session.State is GameState.Waiting or GameState.Starting or GameState.Finished) return Result.Failure("Comodines can only be revived during the game.");
+
+        var target = session.Players.FirstOrDefault(p => p.UserId == targetUserId);
+        if (target is null) return Result.Failure("Player not found in this room.");
+        if (!target.CanPlay()) return Result.Failure("Ese jugador no usa comodines.");
+
+        var revived = tipo is { } t ? target.UsedComodines.RemoveAll(c => c == t) : target.UsedComodines.RemoveAll(_ => true);
+        if (revived == 0) return Result.Failure("El jugador no tiene comodines usados que revivir.");
+
+        await _store.SaveAsync(session);
+        await BroadcastPlayersListAsync(session);
+
+        _logger.LogInformation("Owner {OwnerId} revived {Tipo} for player {TargetUserId} in room {RoomCode}",
+            ownerId, tipo?.ToString() ?? "all comodines", targetUserId, roomCode);
+
+        return Result.Success();
+    }
+
+    /// <inheritdoc />
     public async Task<Result> SetSpectatorAsync(string roomCode, long ownerId, long targetUserId, bool isSpectator)
     {
         await using var roomLock = await AcquireRoomLockAsync(roomCode);
