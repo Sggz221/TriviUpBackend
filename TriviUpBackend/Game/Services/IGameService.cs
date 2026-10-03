@@ -18,8 +18,9 @@ public interface IGameService
     /// <param name="username">Nombre de usuario del propietario.</param>
     /// <param name="connectionId">ID de conexión SignalR del propietario.</param>
     /// <param name="mode">Modo de juego; el presencial siempre es sin tiempo.</param>
+    /// <param name="comodines">Comodines activos y usos por jugador (nombre → usos); null = los del modo con un uso.</param>
     /// <returns>Código de la sala creada.</returns>
-    Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId, int? turnTimeLimitSeconds = null, GameMode mode = GameMode.Normal);
+    Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId, int? turnTimeLimitSeconds = null, GameMode mode = GameMode.Normal, IReadOnlyDictionary<string, int>? comodines = null);
 
     /// <summary>
     /// Une a un jugador a una sala existente.

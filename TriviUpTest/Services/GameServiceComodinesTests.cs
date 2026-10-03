@@ -578,6 +578,100 @@ public class GameServiceComodinesTests
         Assert.True((await UseAsync(roomCode, thief, ComodinTipo.Apuesta, Current(s).Id, true)).IsFailure);
     }
 
+    // ========== Comodines configurables y usos ==========
+
+    private async Task<string> StartConfiguredRoomAsync(Dictionary<string, int>? config)
+    {
+        var roomCode = await _service.CreateGameAsync(1L, Owner, "owner", "conn-owner", null, GameMode.Normal, config);
+        for (var i = 0; i < 3; i++)
+        {
+            var id = 200L + i * 100;
+            await _service.JoinGameAsync(roomCode, id, $"p{id}", $"conn-{id}");
+        }
+        Assert.NotNull(await _service.StartGameAsync(roomCode, Owner));
+        _sent.Clear();
+        return roomCode;
+    }
+
+    [Fact]
+    public void Normalizar_DropsUnknownDisabledAndModeInvalid_AndCapsUses()
+    {
+        var config = ComodinReglas.Normalizar(GameMode.Normal, new Dictionary<string, int>
+        {
+            ["Ruleta"] = 99, ["robo"] = 2, ["Nope"] = 1, ["Llamada"] = 1, ["Apuesta"] = 0
+        });
+
+        Assert.Equal(2, config!.Count);
+        Assert.Equal(ComodinReglas.MaxUsos, config[ComodinTipo.Ruleta]);
+        Assert.Equal(2, config[ComodinTipo.Robo]);
+        Assert.Null(ComodinReglas.Normalizar(GameMode.Normal, null));
+    }
+
+    [Fact]
+    public async Task Config_DisabledComodin_IsNotAvailableAndCannotBeUsed()
+    {
+        var roomCode = await StartConfiguredRoomAsync(new() { ["Ruleta"] = 1 });
+        var s = await SessionAsync(roomCode);
+        var player = s.Players.First(p => p.CanPlay());
+
+        Assert.Equal([ComodinTipo.Ruleta], player.AvailableComodines(s.Mode, s.ComodinUsos));
+
+        var result = await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.DobleONada, Current(s).Id);
+        Assert.True(result.IsFailure);
+        Assert.DoesNotContain(s.Players.Single(p => p.UserId == s.GetCurrentPlayerId()).UsedComodines, c => c == ComodinTipo.DobleONada);
+    }
+
+    [Fact]
+    public async Task Config_NoConfig_KeepsAllComodinesOfTheModeWithOneUse()
+    {
+        var roomCode = await StartConfiguredRoomAsync(null);
+        var s = await SessionAsync(roomCode);
+        var player = s.Players.First(p => p.CanPlay());
+
+        Assert.Equal(4, player.AvailableComodines(s.Mode, s.ComodinUsos).Count);
+        Assert.All(player.RemainingUses(s.Mode, s.ComodinUsos).Values, v => Assert.Equal(1, v));
+    }
+
+    [Fact]
+    public async Task Usos_ComodinWithTwoUses_SurvivesFirstUseAndFailsAfterSecond()
+    {
+        var roomCode = await StartConfiguredRoomAsync(new() { ["Ruleta"] = 2 });
+        var s = await SessionAsync(roomCode);
+        var turn = s.GetCurrentPlayerId()!.Value;
+
+        var first = await UseAsync(roomCode, turn, ComodinTipo.Ruleta, Current(s).Id);
+        Assert.True(first.IsSuccess);
+        Assert.Equal(1, first.Value.RemainingUses!["Ruleta"]);
+        Assert.Contains("Ruleta", first.Value.AvailableComodines);
+
+        // Segundo uso (lo habilitamos saltando el límite de un comodín por pregunta)
+        s = await SessionAsync(roomCode);
+        s.ComodinUsedOnQuestion = false;
+        s.EliminatedAnswerIndexes.Clear();
+        await _store.SaveAsync(s);
+        var second = await UseAsync(roomCode, turn, ComodinTipo.Ruleta, Current(s).Id);
+        Assert.True(second.IsSuccess);
+        Assert.DoesNotContain("Ruleta", second.Value.AvailableComodines);
+
+        s = await SessionAsync(roomCode);
+        s.ComodinUsedOnQuestion = false;
+        await _store.SaveAsync(s);
+        var third = await UseAsync(roomCode, turn, ComodinTipo.Ruleta, Current(s).Id);
+        Assert.True(third.IsFailure);
+    }
+
+    [Fact]
+    public async Task ReviveComodin_WithSeveralUses_RestoresOneUseAtATime()
+    {
+        var roomCode = await StartConfiguredRoomAsync(new() { ["Ruleta"] = 3 });
+        await MarkUsedAsync(roomCode, 200L, ComodinTipo.Ruleta, ComodinTipo.Ruleta);
+
+        await _service.ReviveComodinAsync(roomCode, Owner, 200L, ComodinTipo.Ruleta);
+
+        var s = await SessionAsync(roomCode);
+        Assert.Single(s.Players.Single(p => p.UserId == 200L).UsedComodines);
+    }
+
     // ========== Anfitrión revive comodines ==========
 
     private async Task MarkUsedAsync(string roomCode, long userId, params ComodinTipo[] usados)

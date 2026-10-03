@@ -98,8 +98,9 @@ public class GameHub : Hub
     /// <summary>
     /// Crea una nueva sala de juego. Requiere usuario autenticado.
     /// <paramref name="mode"/>: "Normal" (por defecto) o "Presencial".
+    /// <paramref name="comodines"/>: comodín → usos por jugador (1..5); los ausentes quedan desactivados. null = todos los del modo, un uso.
     /// </summary>
-    public async Task<string> CreateGame(long quizId, int? turnTimeLimitSeconds = null, string? mode = null)
+    public async Task<string> CreateGame(long quizId, int? turnTimeLimitSeconds = null, string? mode = null, Dictionary<string, int>? comodines = null)
     {
         var userId = GetAuthenticatedUserId();
         _logger.LogInformation("User {UserId} creating game for quiz {QuizId}", userId, quizId);
@@ -113,7 +114,7 @@ public class GameHub : Hub
 
         var username = GetAuthenticatedUsername(userId);
 
-        var roomCode = await _gameService.CreateGameAsync(quizId, userId, username, Context.ConnectionId, turnTimeLimitSeconds, gameMode);
+        var roomCode = await _gameService.CreateGameAsync(quizId, userId, username, Context.ConnectionId, turnTimeLimitSeconds, gameMode, comodines);
 
         _logger.LogInformation("Game {RoomCode} created by user {UserId}", roomCode, userId);
 
@@ -187,7 +188,9 @@ public class GameHub : Hub
             false,  // isOwner
             true,   // isConnected
             registered?.IsSpectator ?? false,
-            registered?.AvailableComodines(room.Mode)
+            registered?.AvailableComodines(room.Mode, room.ComodinUsos),
+            registered?.RemainingUses(room.Mode, room.ComodinUsos),
+            MaxUses(room)
         );
 
         // Send current players list to the new player first
@@ -201,7 +204,9 @@ public class GameHub : Hub
             p.IsOwner,
             p.IsConnected,
             p.IsSpectator,
-            p.AvailableComodines(room.Mode)
+            p.AvailableComodines(room.Mode, room.ComodinUsos),
+            p.RemainingUses(room.Mode, room.ComodinUsos),
+            MaxUses(room)
         )).ToList();
 
         await Clients.Caller.SendAsync("PlayersList", playersList);
@@ -293,7 +298,9 @@ public class GameHub : Hub
             p.IsOwner,
             p.IsConnected,
             p.IsSpectator,
-            p.AvailableComodines(room.Mode)
+            p.AvailableComodines(room.Mode, room.ComodinUsos),
+            p.RemainingUses(room.Mode, room.ComodinUsos),
+            MaxUses(room)
         )).ToList();
 
         var gameStateDto = new GameStateDto(
@@ -554,4 +561,7 @@ public class GameHub : Hub
             throw new HubException(result.Error);
         }
     }
+
+    private static Dictionary<string, int> MaxUses(GameRoom room) =>
+        ComodinReglas.Activos(room.Mode, room.ComodinUsos).ToDictionary(kv => kv.Key.ToString(), kv => kv.Value);
 }

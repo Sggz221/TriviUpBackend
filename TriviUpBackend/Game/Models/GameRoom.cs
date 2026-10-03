@@ -14,6 +14,9 @@ public class GameRoom
     public long OwnerId { get; set; }
     public GameState State { get; set; } = GameState.Waiting;
     public GameMode Mode { get; set; } = GameMode.Normal;
+
+    /// <summary>Comodines activos y usos por jugador (null = los del modo, un uso).</summary>
+    public Dictionary<ComodinTipo, int>? ComodinUsos { get; set; }
     public List<Player> Players { get; set; } = new();
     public Queue<long> TurnOrder { get; set; } = new();
     public int CurrentQuestionIndex { get; set; }

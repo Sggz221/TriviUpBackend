@@ -18,8 +18,14 @@ public class Player
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
     public List<ComodinTipo> UsedComodines { get; set; } = new();
 
-    public List<string> AvailableComodines(GameMode mode) =>
+    public List<string> AvailableComodines(GameMode mode, IReadOnlyDictionary<ComodinTipo, int>? config = null) =>
         IsOwner || IsSpectator
             ? new()
-            : ComodinReglas.Disponibles(mode).Where(c => !UsedComodines.Contains(c)).Select(c => c.ToString()).ToList();
+            : ComodinReglas.UsosRestantes(mode, config, UsedComodines).Keys.Select(c => c.ToString()).ToList();
+
+    /// <summary>Usos restantes por comodín (solo los que aún puede usar).</summary>
+    public Dictionary<string, int> RemainingUses(GameMode mode, IReadOnlyDictionary<ComodinTipo, int>? config = null) =>
+        IsOwner || IsSpectator
+            ? new()
+            : ComodinReglas.UsosRestantes(mode, config, UsedComodines).ToDictionary(kv => kv.Key.ToString(), kv => kv.Value);
 }

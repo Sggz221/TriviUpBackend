@@ -1,7 +1,7 @@
 namespace TriviUpBackend.Game.Models;
 
 /// <summary>
-/// Comodines que cada jugador puede usar una vez por partida.
+/// Comodines que cada jugador puede usar durante la partida (por defecto una vez; configurable por sala).
 /// </summary>
 public enum ComodinTipo
 {
@@ -27,6 +27,43 @@ public static class ComodinReglas
     /// <summary>Comodines que existen en un modo de juego: la Llamada solo en Presencial.</summary>
     public static IEnumerable<ComodinTipo> Disponibles(GameMode modo) =>
         Todos.Where(c => c != ComodinTipo.Llamada || modo == GameMode.Presencial);
+
+    /// <summary>Máximo de usos por partida que el anfitrión puede dar a un comodín.</summary>
+    public const int MaxUsos = 5;
+
+    /// <summary>
+    /// Comodines activos y sus usos por jugador. <paramref name="config"/> null = los de cada modo, con 1 uso
+    /// (también el valor de las sesiones guardadas antes de que existiera la configuración).
+    /// </summary>
+    public static IReadOnlyDictionary<ComodinTipo, int> Activos(GameMode modo, IReadOnlyDictionary<ComodinTipo, int>? config) =>
+        config is null
+            ? Disponibles(modo).ToDictionary(c => c, _ => 1)
+            : config.Where(kv => kv.Value > 0 && Disponibles(modo).Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+
+    /// <summary>
+    /// Valida la configuración que llega del cliente: descarta comodines desconocidos o que no existen en el modo
+    /// y acota los usos a 1..<see cref="MaxUsos"/>. null = sin configurar (todos, un uso).
+    /// </summary>
+    public static Dictionary<ComodinTipo, int>? Normalizar(GameMode modo, IReadOnlyDictionary<string, int>? config)
+    {
+        if (config is null) return null;
+        var result = new Dictionary<ComodinTipo, int>();
+        foreach (var (nombre, usos) in config)
+        {
+            if (!Enum.TryParse<ComodinTipo>(nombre, ignoreCase: true, out var tipo) || !Enum.IsDefined(tipo)) continue;
+            if (!Disponibles(modo).Contains(tipo) || usos < 1) continue;
+            result[tipo] = Math.Min(usos, MaxUsos);
+        }
+        return result;
+    }
+
+    /// <summary>Usos que le quedan a un jugador de cada comodín activo (solo los que aún puede usar).</summary>
+    public static Dictionary<ComodinTipo, int> UsosRestantes(
+        GameMode modo, IReadOnlyDictionary<ComodinTipo, int>? config, IReadOnlyCollection<ComodinTipo> usados) =>
+        Activos(modo, config)
+            .Select(kv => (kv.Key, Restantes: kv.Value - usados.Count(u => u == kv.Key)))
+            .Where(x => x.Restantes > 0)
+            .ToDictionary(x => x.Key, x => x.Restantes);
 
     /// <summary>true si el comodín se usa durante el turno propio; false si fuera de él.</summary>
     public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada or ComodinTipo.Llamada;

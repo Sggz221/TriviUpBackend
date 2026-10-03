@@ -34,7 +34,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <inheritdoc />
-    public async Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId, int? turnTimeLimitSeconds = null, GameMode mode = GameMode.Normal)
+    public async Task<string> CreateGameAsync(long quizId, long ownerId, string username, string connectionId, int? turnTimeLimitSeconds = null, GameMode mode = GameMode.Normal, IReadOnlyDictionary<string, int>? comodines = null)
     {
         _logger.LogInformation("Creating game room for quiz {QuizId} by owner {OwnerId} ({Username})", quizId, ownerId, username);
 
@@ -59,6 +59,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 // En persona el anfitrión marca y confirma a su ritmo: nunca hay tiempo por turno.
                 TurnTimeLimitSeconds = mode == GameMode.Presencial ? 0 : NormalizeTurnTimeLimit(turnTimeLimitSeconds),
                 Mode = mode,
+                ComodinUsos = ComodinReglas.Normalizar(mode, comodines),
                 State = GameState.Waiting,
                 Players =
                 [
@@ -281,16 +282,24 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
     private async Task BroadcastPlayersListAsync(GameSessionDocument session)
     {
-        var playersList = session.Players.Select(p => ToPlayerDto(p, session.Mode)).ToList();
+        var playersList = session.Players.Select(p => ToPlayerDto(p, session)).ToList();
 
         using var scope = _scopeFactory.CreateScope();
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
         await hubContext.Clients.Group(session.RoomCode).SendAsync("PlayersList", playersList);
     }
 
-    private static PlayerDto ToPlayerDto(PlayerDocument p, GameMode mode) => new(
+    private static PlayerDto ToPlayerDto(PlayerDocument p, GameSessionDocument session) => new(
         p.UserId, p.Username, p.Score, p.CorrectAnswers, p.WrongAnswers, false, p.IsOwner, p.IsConnected, p.IsSpectator,
-        ComodinNames(p.AvailableComodines(mode)));
+        ComodinNames(p.AvailableComodines(session.Mode, session.ComodinUsos)),
+        UsesByName(p.RemainingUses(session.Mode, session.ComodinUsos)),
+        MaxUsesByName(session));
+
+    private static Dictionary<string, int> MaxUsesByName(GameSessionDocument session) =>
+        ComodinReglas.Activos(session.Mode, session.ComodinUsos).ToDictionary(kv => kv.Key.ToString(), kv => kv.Value);
+
+    private static Dictionary<string, int> UsesByName(Dictionary<ComodinTipo, int> uses) =>
+        uses.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value);
 
     private static List<string> ComodinNames(IEnumerable<ComodinTipo> comodines) =>
         comodines.Select(c => c.ToString()).ToList();
@@ -798,14 +807,15 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return Result.Failure<ComodinUsedDto>("En las rondas dinámicas no hay comodines.");
         }
 
-        if (!ComodinReglas.Disponibles(session.Mode).Contains(tipo))
+        var activos = ComodinReglas.Activos(session.Mode, session.ComodinUsos);
+        if (!activos.TryGetValue(tipo, out var usosMaximos))
         {
-            return Result.Failure<ComodinUsedDto>("Ese comodín no existe en este modo de juego.");
+            return Result.Failure<ComodinUsedDto>("Ese comodín no está activo en esta partida.");
         }
 
-        if (player.UsedComodines.Contains(tipo))
+        if (player.UsedComodines.Count(c => c == tipo) >= usosMaximos)
         {
-            return Result.Failure<ComodinUsedDto>("Ya has usado ese comodín.");
+            return Result.Failure<ComodinUsedDto>(usosMaximos == 1 ? "Ya has usado ese comodín." : "Ya has gastado los usos de ese comodín.");
         }
 
         var question = session.Questions[session.CurrentQuestionIndex];
@@ -904,9 +914,10 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         player.UsedComodines.Add(tipo);
 
         var dto = new ComodinUsedDto(
-            userId, player.Username, tipo.ToString(), question.Id, ComodinNames(player.AvailableComodines(session.Mode)),
+            userId, player.Username, tipo.ToString(), question.Id, ComodinNames(player.AvailableComodines(session.Mode, session.ComodinUsos)),
             eliminated, ruletaResultado, tipo == ComodinTipo.Apuesta ? predictsCorrect : null, stolenFrom,
-            ruletaHueco, ruletaHueco.HasValue ? ComodinReglas.DuracionRuletaMs : null);
+            ruletaHueco, ruletaHueco.HasValue ? ComodinReglas.DuracionRuletaMs : null,
+            UsesByName(player.RemainingUses(session.Mode, session.ComodinUsos)));
 
         using (var scope = _scopeFactory.CreateScope())
         {
@@ -1184,7 +1195,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         if (target is null) return Result.Failure("Player not found in this room.");
         if (!target.CanPlay()) return Result.Failure("Ese jugador no usa comodines.");
 
-        var revived = tipo is { } t ? target.UsedComodines.RemoveAll(c => c == t) : target.UsedComodines.RemoveAll(_ => true);
+        var revived = tipo is { } t ? (target.UsedComodines.Remove(t) ? 1 : 0) : target.UsedComodines.RemoveAll(_ => true);
         if (revived == 0) return Result.Failure("El jugador no tiene comodines usados que revivir.");
 
         await _store.SaveAsync(session);
@@ -1345,7 +1356,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     {
         var completed = session.Questions[Math.Max(session.CurrentQuestionIndex - 1, 0)];
         var next = session.Questions[Math.Min(session.CurrentQuestionIndex, session.Questions.Count - 1)];
-        var players = session.Players.Select(p => ToPlayerDto(p, session.Mode)).ToList();
+        var players = session.Players.Select(p => ToPlayerDto(p, session)).ToList();
 
         return new PhaseCompletedDto(
             session.RoomCode,
@@ -1437,7 +1448,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return null;
         }
 
-        var players = session.Players.Select(p => ToPlayerDto(p, session.Mode)).ToList();
+        var players = session.Players.Select(p => ToPlayerDto(p, session)).ToList();
 
         var gameState = new GameStateDto(
             session.RoomCode,

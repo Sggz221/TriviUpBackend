@@ -49,7 +49,9 @@ public record PlayerDto(
     bool IsOwner,
     bool IsConnected,
     bool IsSpectator = false,
-    List<string>? AvailableComodines = null
+    List<string>? AvailableComodines = null,
+    Dictionary<string, int>? RemainingUses = null,
+    Dictionary<string, int>? MaxUses = null
 );
 
 /// <summary>
@@ -101,7 +103,8 @@ public record ComodinUsedDto(
     bool? PredictsCorrect = null,
     long? StolenFromPlayerId = null,
     int? RuletaHueco = null,
-    int? RuletaDuracionMs = null
+    int? RuletaDuracionMs = null,
+    Dictionary<string, int>? RemainingUses = null
 );
 
 /// <summary>

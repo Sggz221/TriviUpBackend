@@ -31,6 +31,9 @@ public sealed class GameSessionDocument
 
     public GameMode Mode { get; set; } = GameMode.Normal;
 
+    /// <summary>Comodines activos y usos por jugador, elegidos al crear la sala (null = los del modo, un uso).</summary>
+    public Dictionary<ComodinTipo, int>? ComodinUsos { get; set; }
+
     // ---- Modo presencial: respuesta de la pregunta en curso (se reinicia en cada pregunta) ----
 
     /// <summary>Opción marcada por el anfitrión y aún sin confirmar (null = ninguna).</summary>
@@ -136,13 +139,17 @@ public sealed class PlayerDocument
     /// </summary>
     public DateTime? DisconnectedAt { get; set; }
 
-    /// <summary>Comodines ya gastados (cada jugador tiene uno de cada, no recuperables).</summary>
+    /// <summary>Usos de comodín ya gastados: un tipo repetido cuenta cada uso.</summary>
     public List<ComodinTipo> UsedComodines { get; set; } = new();
 
     public bool CanPlay() => !IsOwner && !IsSpectator;
 
-    public List<ComodinTipo> AvailableComodines(GameMode mode) =>
-        CanPlay() ? ComodinReglas.Disponibles(mode).Where(c => !UsedComodines.Contains(c)).ToList() : new();
+    public List<ComodinTipo> AvailableComodines(GameMode mode, IReadOnlyDictionary<ComodinTipo, int>? config = null) =>
+        CanPlay() ? ComodinReglas.UsosRestantes(mode, config, UsedComodines).Keys.ToList() : new();
+
+    /// <summary>Usos restantes por comodín (solo los que aún puede usar).</summary>
+    public Dictionary<ComodinTipo, int> RemainingUses(GameMode mode, IReadOnlyDictionary<ComodinTipo, int>? config = null) =>
+        CanPlay() ? ComodinReglas.UsosRestantes(mode, config, UsedComodines) : new();
 }
 
 public sealed class BetDocument
