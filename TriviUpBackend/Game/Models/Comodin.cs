@@ -16,7 +16,9 @@ public enum ComodinTipo
     /// <summary>Turno propio, solo en modo Presencial: el equipo llama a un amigo y se muestra un cartel hasta que el anfitrión lo quita.</summary>
     Llamada,
     /// <summary>Turno propio: elimina la mitad (redondeando a la baja) de las respuestas incorrectas que quedan.</summary>
-    CincuentaCincuenta
+    CincuentaCincuenta,
+    /// <summary>Turno propio: salta la pregunta sin responderla. No suma ni resta puntos, la pregunta se descarta y pasa el turno.</summary>
+    Pasar
 }
 
 /// <summary>
@@ -68,7 +70,7 @@ public static class ComodinReglas
             .ToDictionary(x => x.Key, x => x.Restantes);
 
     /// <summary>true si el comodín se usa durante el turno propio; false si fuera de él.</summary>
-    public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada or ComodinTipo.Llamada or ComodinTipo.CincuentaCincuenta;
+    public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada or ComodinTipo.Llamada or ComodinTipo.CincuentaCincuenta or ComodinTipo.Pasar;
 
     /// <summary>
     /// Huecos de la ruleta en orden horario desde arriba; cada uno dice cuántas respuestas

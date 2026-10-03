@@ -66,7 +66,9 @@ public record TurnResultDto(
     bool IsSteal = false,
     bool DoubleOrNothing = false,
     long? ReturnsToPlayerId = null,
-    List<BetResultDto>? Bets = null
+    List<BetResultDto>? Bets = null,
+    /// <summary>true si el jugador pasó la pregunta con el comodín Pasar (sin acierto ni fallo).</summary>
+    bool Passed = false
 );
 
 /// <summary>

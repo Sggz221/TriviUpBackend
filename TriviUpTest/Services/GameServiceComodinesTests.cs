@@ -34,6 +34,7 @@ public class GameServiceComodinesTests
 
         var hubClients = new Mock<IHubClients>();
         hubClients.Setup(c => c.Group(It.IsAny<string>())).Returns(_groupProxy.Object);
+        hubClients.Setup(c => c.Client(It.IsAny<string>())).Returns(Mock.Of<ISingleClientProxy>());
         var hubContext = new Mock<IHubContext<GameHub>>();
         hubContext.Setup(h => h.Clients).Returns(hubClients.Object);
 
@@ -578,6 +579,116 @@ public class GameServiceComodinesTests
         Assert.True((await UseAsync(roomCode, thief, ComodinTipo.Apuesta, Current(s).Id, true)).IsFailure);
     }
 
+    // ========== Pasar ==========
+
+    [Fact]
+    public async Task Pasar_ClosesTurnWithoutPoints_AdvancesQuestionAndEmitsPassedResult()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var passer = s.GetCurrentPlayerId()!.Value;
+        var firstQuestion = Current(s).Id;
+
+        var result = await UseAsync(roomCode, passer, ComodinTipo.Pasar, firstQuestion);
+
+        Assert.True(result.IsSuccess);
+        Assert.DoesNotContain("Pasar", result.Value.AvailableComodines);
+        var after = await SessionAsync(roomCode);
+        var player = after.Players.Single(p => p.UserId == passer);
+        Assert.Equal(0, player.Score);
+        Assert.Equal(0, player.CorrectAnswers);
+        Assert.Equal(0, player.WrongAnswers);
+        Assert.Equal(1, after.CurrentQuestionIndex);
+        Assert.NotEqual(firstQuestion, Current(after).Id);
+        Assert.NotEqual(passer, after.GetCurrentPlayerId());
+
+        var turnResult = Assert.IsType<TurnResultDto>(_sent.Single(m => m.Method == "TurnResult").Payload);
+        Assert.True(turnResult.Passed);
+        Assert.Equal(passer, turnResult.PlayerId);
+        Assert.Equal(0, turnResult.PointsEarned);
+        Assert.Contains(_sent, m => m.Method == "TurnStarted");
+    }
+
+    [Fact]
+    public async Task Pasar_RefundsBetsOnThatQuestion()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var bettor = s.TurnQueue[1];
+        Assert.True((await UseAsync(roomCode, bettor, ComodinTipo.Apuesta, Current(s).Id, true)).IsSuccess);
+
+        await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.Pasar, Current(s).Id);
+
+        var after = await SessionAsync(roomCode);
+        Assert.Empty(after.Bets);
+        Assert.Contains(ComodinTipo.Apuesta.ToString(), after.Players.Single(p => p.UserId == bettor).AvailableComodines(after.Mode, after.ComodinUsos).Select(c => c.ToString()));
+        var turnResult = (TurnResultDto)_sent.Single(m => m.Method == "TurnResult").Payload!;
+        Assert.True(turnResult.Bets!.Single().Refunded);
+    }
+
+    [Fact]
+    public async Task Pasar_OutOfTurn_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+
+        var result = await UseAsync(roomCode, Bystander(s), ComodinTipo.Pasar, Current(s).Id);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, (await SessionAsync(roomCode)).CurrentQuestionIndex);
+    }
+
+    [Fact]
+    public async Task Pasar_OnStolenQuestion_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        var thief = Bystander(s);
+        Assert.True((await UseAsync(roomCode, thief, ComodinTipo.Robo, Current(s).Id)).IsSuccess);
+
+        var result = await UseAsync(roomCode, thief, ComodinTipo.Pasar, Current(s).Id);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, (await SessionAsync(roomCode)).CurrentQuestionIndex);
+    }
+
+    [Fact]
+    public async Task Pasar_OnLastQuestion_EndsTheGame()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        s.CurrentQuestionIndex = s.Questions.Count - 1;
+        await _store.SaveAsync(s);
+
+        var result = await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.Pasar, Current(s).Id);
+
+        Assert.True(result.IsSuccess);
+        Assert.Contains(_sent, m => m.Method == "GameEnded" || m.Method == "GameFinished");
+    }
+
+    [Fact]
+    public async Task Pasar_Presencial_LeavesResultOnScreenUntilHostAdvances()
+    {
+        var roomCode = await _service.CreateGameAsync(1L, Owner, "owner", "conn-owner", null, GameMode.Presencial);
+        foreach (var id in new[] { 200L, 300L, 400L })
+        {
+            await _service.JoinGameAsync(roomCode, id, $"p{id}", $"conn-{id}");
+        }
+        Assert.NotNull(await _service.StartGameAsync(roomCode, Owner));
+        _sent.Clear();
+        var s = await SessionAsync(roomCode);
+
+        var result = await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.Pasar, Current(s).Id);
+
+        Assert.True(result.IsSuccess);
+        var after = await SessionAsync(roomCode);
+        Assert.True(after.AwaitingNextQuestion);
+        Assert.Equal(0, after.CurrentQuestionIndex);
+        Assert.True(after.LastTurnResult!.Passed);
+        Assert.True((await _service.NextQuestionAsync(roomCode, Owner)).IsSuccess);
+        Assert.Equal(1, (await SessionAsync(roomCode)).CurrentQuestionIndex);
+    }
+
     // ========== 50/50 ==========
 
     [Theory]
@@ -689,7 +800,7 @@ public class GameServiceComodinesTests
         var s = await SessionAsync(roomCode);
         var player = s.Players.First(p => p.CanPlay());
 
-        Assert.Equal(5, player.AvailableComodines(s.Mode, s.ComodinUsos).Count);
+        Assert.Equal(6, player.AvailableComodines(s.Mode, s.ComodinUsos).Count);
         Assert.All(player.RemainingUses(s.Mode, s.ComodinUsos).Values, v => Assert.Equal(1, v));
     }
 
@@ -848,8 +959,8 @@ public class GameServiceComodinesTests
 
         var players = (await _service.GetRejoinStateAsync(roomCode))!.GameState.Players;
         Assert.Empty(players.Single(p => p.UserId == Owner).AvailableComodines!);
-        Assert.Equal(["DobleONada", "Robo", "Apuesta", "CincuentaCincuenta"], players.Single(p => p.UserId == s.GetCurrentPlayerId()).AvailableComodines);
-        Assert.Equal(5, players.Single(p => p.UserId == Bystander(s)).AvailableComodines!.Count);
+        Assert.Equal(["DobleONada", "Robo", "Apuesta", "CincuentaCincuenta", "Pasar"], players.Single(p => p.UserId == s.GetCurrentPlayerId()).AvailableComodines);
+        Assert.Equal(6, players.Single(p => p.UserId == Bystander(s)).AvailableComodines!.Count);
     }
 
     // ========== Bonus de tiempo en el servidor ==========
