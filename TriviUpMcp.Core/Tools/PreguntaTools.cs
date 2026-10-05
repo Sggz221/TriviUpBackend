@@ -30,7 +30,7 @@ public class PreguntaTools(TriviUpApiClient client)
     }
 
     [McpServerTool(Name = "obtener_pregunta", ReadOnly = true)]
-    [Description("Obtiene el detalle completo de una pregunta del banco por su id (enunciado, respuestas, dificultad, categoría).")]
+    [Description("Obtiene el detalle completo de una pregunta del banco por su id (enunciado, respuestas, dificultad, categoría, curiosidad).")]
     public Task<string> ObtenerPregunta(
         [Description("Id de la pregunta")] long id,
         CancellationToken ct = default)
@@ -49,20 +49,21 @@ public class PreguntaTools(TriviUpApiClient client)
         [Description("Id de una categoría ya existente del usuario (opcional, tiene prioridad sobre categoriaNombre)")] long? categoriaId = null,
         [Description("Nombre de categoría: se reutiliza si ya existe o se crea nueva (opcional)")] string? categoriaNombre = null,
         [Description("URL de una imagen asociada a la pregunta (opcional)")] string? imagenUrl = null,
+        [Description(CuriosidadDescription)] string? curiosidad = null,
         CancellationToken ct = default)
     {
         return ToolExecution.RunAsync(async () =>
         {
             ValidateRespuestas(respuestas);
             var request = new BancoPreguntaRequest(
-                enunciado, ToBancoRespuestas(respuestas), imagenUrl, dificultad, categoriaId, categoriaNombre);
+                enunciado, ToBancoRespuestas(respuestas), imagenUrl, dificultad, categoriaId, categoriaNombre, curiosidad);
             return await client.CreatePreguntaAsync(request, ct);
         });
     }
 
     [McpServerTool(Name = "editar_pregunta")]
-    [Description("Reemplaza por completo una pregunta existente (enunciado, respuestas, dificultad y categoría). " +
-                 "Para cambiar un solo campo sin tocar el resto, usa mejor editar_dificultad_pregunta, anadir_respuesta o marcar_respuesta_correcta.")]
+    [Description("Reemplaza por completo una pregunta existente (enunciado, respuestas, dificultad, categoría y curiosidad: lo que se omita se borra). " +
+                 "Para cambiar un solo campo sin tocar el resto, usa mejor editar_dificultad_pregunta, editar_curiosidad_pregunta, anadir_respuesta o marcar_respuesta_correcta.")]
     public Task<string> EditarPregunta(
         [Description("Id de la pregunta a editar")] long id,
         [Description("Nuevo enunciado (máx. 1000 caracteres)")] string enunciado,
@@ -71,13 +72,14 @@ public class PreguntaTools(TriviUpApiClient client)
         [Description("Id de una categoría ya existente del usuario (opcional)")] long? categoriaId = null,
         [Description("Nombre de categoría: se reutiliza si ya existe o se crea nueva (opcional)")] string? categoriaNombre = null,
         [Description("URL de una imagen asociada a la pregunta (opcional)")] string? imagenUrl = null,
+        [Description(CuriosidadDescription)] string? curiosidad = null,
         CancellationToken ct = default)
     {
         return ToolExecution.RunAsync(async () =>
         {
             ValidateRespuestas(respuestas);
             var request = new BancoPreguntaRequest(
-                enunciado, ToBancoRespuestas(respuestas), imagenUrl, dificultad, categoriaId, categoriaNombre);
+                enunciado, ToBancoRespuestas(respuestas), imagenUrl, dificultad, categoriaId, categoriaNombre, curiosidad);
             return await client.UpdatePreguntaAsync(id, request, ct);
         });
     }
@@ -106,7 +108,7 @@ public class PreguntaTools(TriviUpApiClient client)
     }
 
     [McpServerTool(Name = "editar_dificultad_pregunta")]
-    [Description("Cambia solo la dificultad de una pregunta existente, sin tocar enunciado, respuestas ni categoría.")]
+    [Description("Cambia solo la dificultad de una pregunta existente, sin tocar enunciado, respuestas, categoría ni curiosidad.")]
     public Task<string> EditarDificultadPregunta(
         [Description("Id de la pregunta")] long id,
         [Description("Nueva dificultad: facil, media o dificil (usa null/vacío para dejarla sin clasificar)")] string? dificultad = null,
@@ -116,6 +118,22 @@ public class PreguntaTools(TriviUpApiClient client)
         {
             var actual = await client.GetPreguntaAsync(id, ct);
             var request = RequestFromCurrent(actual) with { Dificultad = dificultad };
+            return await client.UpdatePreguntaAsync(id, request, ct);
+        });
+    }
+
+    [McpServerTool(Name = "editar_curiosidad_pregunta")]
+    [Description("Añade, cambia o quita la curiosidad (dato curioso) de una pregunta existente, sin tocar el resto. " +
+                 "Durante la partida solo la ve el anfitrión, tras revelarse la respuesta.")]
+    public Task<string> EditarCuriosidadPregunta(
+        [Description("Id de la pregunta")] long id,
+        [Description("Nueva curiosidad (máx. 1000 caracteres; null/vacío para quitarla)")] string? curiosidad = null,
+        CancellationToken ct = default)
+    {
+        return ToolExecution.RunAsync(async () =>
+        {
+            var actual = await client.GetPreguntaAsync(id, ct);
+            var request = RequestFromCurrent(actual) with { Curiosidad = curiosidad };
             return await client.UpdatePreguntaAsync(id, request, ct);
         });
     }
@@ -211,5 +229,9 @@ public class PreguntaTools(TriviUpApiClient client)
 
     /// <summary>Reconstruye el request de escritura a partir del estado actual, para operaciones read-modify-write.</summary>
     private static BancoPreguntaRequest RequestFromCurrent(BancoPreguntaResponse actual) => new(
-        actual.Enunciado, actual.Respuestas, actual.ImagenUrl, actual.Dificultad, actual.CategoriaId, actual.CategoriaNombre);
+        actual.Enunciado, actual.Respuestas, actual.ImagenUrl, actual.Dificultad, actual.CategoriaId, actual.CategoriaNombre, actual.Curiosidad);
+
+    private const string CuriosidadDescription =
+        "Curiosidad o dato curioso sobre la pregunta (opcional, máx. 1000 caracteres). " +
+        "En la partida solo la ve el anfitrión, tras revelarse la respuesta, para comentarla en voz alta.";
 }

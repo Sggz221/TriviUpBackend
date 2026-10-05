@@ -200,11 +200,13 @@ public record AnswerMarkedDto(
 );
 
 /// <summary>
-/// Modo presencial: respuesta correcta de la pregunta en curso. Solo se envía al anfitrión.
+/// Datos de la pregunta en curso que solo se envían al anfitrión, nunca al grupo:
+/// la respuesta correcta (solo en modo presencial; null en otro caso) y la curiosidad.
 /// </summary>
 public record HostQuestionInfoDto(
     long QuestionId,
-    int CorrectAnswerIndex
+    int? CorrectAnswerIndex,
+    string? Curiosidad = null
 );
 
 /// <summary>

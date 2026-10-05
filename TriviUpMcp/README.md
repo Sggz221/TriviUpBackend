@@ -82,10 +82,13 @@ corregir su siguiente llamada sin necesidad de reintentos a ciegas.
 - La categoría de una pregunta se indica por `categoriaId` (si ya existe y se conoce el id) o por
   `categoriaNombre` (se reutiliza si ya existe una con ese nombre, o se crea). `categoriaId` tiene
   prioridad si se indican ambos.
+- `curiosidad` es un dato curioso opcional (máx. 1000 caracteres) de cada pregunta, del banco o de un
+  cuestionario. En la partida **solo la ve el anfitrión**, después de revelarse la respuesta, para
+  comentarla en voz alta; nunca se envía a los jugadores.
 - La API no tiene PATCH parcial: `editar_pregunta` reemplaza la pregunta entera. Para cambios puntuales
-  usa las tools de conveniencia (`editar_dificultad_pregunta`, `anadir_respuesta`,
-  `marcar_respuesta_correcta`), que internamente hacen *read-modify-write* (leen la pregunta actual,
-  cambian solo el campo pedido, y guardan) preservando el resto de campos.
+  usa las tools de conveniencia (`editar_dificultad_pregunta`, `editar_curiosidad_pregunta`,
+  `anadir_respuesta`, `marcar_respuesta_correcta`), que internamente hacen *read-modify-write* (leen la
+  pregunta actual, cambian solo el campo pedido, y guardan) preservando el resto de campos.
 
 ## Tools disponibles
 
@@ -111,19 +114,20 @@ corregir su siguiente llamada sin necesidad de reintentos a ciegas.
 |---|---|
 | `listar_preguntas` | Filtros opcionales: `q`, `categoriaId`, `sinCategoria`, `dificultad`, `page`, `pageSize`. |
 | `obtener_pregunta` | `id` → detalle completo de una pregunta. |
-| `crear_pregunta` | `enunciado`, `respuestas` (lista de `{texto, esCorrecta}`), y opcionalmente `dificultad`, `categoriaId`/`categoriaNombre`, `imagenUrl`. |
+| `crear_pregunta` | `enunciado`, `respuestas` (lista de `{texto, esCorrecta}`), y opcionalmente `dificultad`, `categoriaId`/`categoriaNombre`, `imagenUrl`, `curiosidad`. |
 | `editar_pregunta` | Igual que `crear_pregunta` pero reemplaza una pregunta existente por `id`. |
 | `eliminar_pregunta` | `id` → borra la pregunta. |
 | `asignar_categoria_preguntas` | `preguntaIds` (lista), `categoriaId` (o null) → mueve varias preguntas de una vez. |
 | `editar_dificultad_pregunta` | `id`, `dificultad` → cambia solo la dificultad. |
+| `editar_curiosidad_pregunta` | `id`, `curiosidad` → añade, cambia o quita (null/vacío) solo la curiosidad. |
 | `anadir_respuesta` | `id`, `texto`, `esCorrecta` → añade una respuesta conservando las existentes. |
 | `marcar_respuesta_correcta` | `id`, y `respuestaIndex` (0-based) o `respuestaTexto` → marca esa respuesta como correcta y desmarca el resto. |
 
 ### Cuestionarios (quizzes)
 
 CRUD completo sobre `api/cuestionarios`. Un cuestionario tiene sus propias preguntas (con
-`numeroPregunta`, `respuestas`, `dificultad` y una `fase` opcional para agrupar preguntas por
-bloques) — son independientes de las del banco personal; no hay conversión automática entre unas y
+`numeroPregunta`, `respuestas`, `dificultad`, una `curiosidad` opcional y una `fase` opcional para
+agrupar preguntas por bloques) — son independientes de las del banco personal; no hay conversión automática entre unas y
 otras.
 
 | Tool | Descripción |
@@ -161,7 +165,8 @@ banco. Tampoco se incluyen aquí las operaciones de borradores/versiones/publica
       { "texto": "Madrid", "esCorrecta": false }
     ],
     "dificultad": "facil",
-    "categoriaNombre": "Geografía"
+    "categoriaNombre": "Geografía",
+    "curiosidad": "París se llamaba Lutecia en época romana."
   }
 }
 ```

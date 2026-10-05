@@ -34,7 +34,8 @@ public record BancoPreguntaRequest(
     [property: JsonPropertyName("imagenUrl")] string? ImagenUrl = null,
     [property: JsonPropertyName("dificultad")] string? Dificultad = null,
     [property: JsonPropertyName("categoriaId")] long? CategoriaId = null,
-    [property: JsonPropertyName("categoriaNombre")] string? CategoriaNombre = null
+    [property: JsonPropertyName("categoriaNombre")] string? CategoriaNombre = null,
+    [property: JsonPropertyName("curiosidad")] string? Curiosidad = null
 );
 
 public record BancoPreguntaResponse(
@@ -46,7 +47,8 @@ public record BancoPreguntaResponse(
     [property: JsonPropertyName("categoriaId")] long? CategoriaId,
     [property: JsonPropertyName("categoriaNombre")] string? CategoriaNombre,
     [property: JsonPropertyName("fechaCreacion")] DateTime FechaCreacion,
-    [property: JsonPropertyName("fechaActualizacion")] DateTime FechaActualizacion
+    [property: JsonPropertyName("fechaActualizacion")] DateTime FechaActualizacion,
+    [property: JsonPropertyName("curiosidad")] string? Curiosidad = null
 );
 
 public record BancoPreguntaListResponse(
@@ -103,7 +105,8 @@ public record PreguntaCuestionarioInput(
     [property: JsonPropertyName("dificultad")] string? Dificultad = null,
     [property: JsonPropertyName("faseNumero")] int FaseNumero = 1,
     [property: JsonPropertyName("faseNombre")] string? FaseNombre = null,
-    [property: JsonPropertyName("faseColor")] string? FaseColor = null
+    [property: JsonPropertyName("faseColor")] string? FaseColor = null,
+    [property: JsonPropertyName("curiosidad")] string? Curiosidad = null
 );
 
 public record CreateCuestionarioRequest(
@@ -136,7 +139,8 @@ public record PreguntaCuestionarioResponse(
     [property: JsonPropertyName("faseNombre")] string? FaseNombre,
     [property: JsonPropertyName("faseColor")] string? FaseColor,
     [property: JsonPropertyName("dificultad")] string? Dificultad,
-    [property: JsonPropertyName("respuestas")] List<RespuestaCuestionarioResponse> Respuestas
+    [property: JsonPropertyName("respuestas")] List<RespuestaCuestionarioResponse> Respuestas,
+    [property: JsonPropertyName("curiosidad")] string? Curiosidad = null
 );
 
 public record CuestionarioResponse(

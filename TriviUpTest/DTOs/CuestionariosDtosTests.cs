@@ -69,6 +69,7 @@ public class CuestionariosDtosTests
         Assert.Equal(pregunta.NumeroPregunta, response.NumeroPregunta);
         Assert.Equal(pregunta.Enunciado, response.Enunciado);
         Assert.Equal(pregunta.ImagenUrl, response.ImagenUrl);
+        Assert.Equal(pregunta.Curiosidad, response.Curiosidad);
         Assert.NotEmpty(response.Respuestas);
         Assert.Equal(2, response.Respuestas.Count);
     }
@@ -279,6 +280,7 @@ public class CuestionariosDtosTests
             NumeroPregunta = 1,
             Enunciado = "Sample question",
             ImagenUrl = "https://example.com/image.png",
+            Curiosidad = "Dato curioso",
             CreatorId = 1,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,

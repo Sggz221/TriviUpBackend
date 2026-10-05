@@ -169,6 +169,9 @@ public sealed class QuestionSnapshot
     public long Id { get; set; }
     public string Enunciado { get; set; } = string.Empty;
     public string? ImagenUrl { get; set; }
+
+    /// <summary>Dato curioso: solo viaja al anfitrión (HostQuestionInfo), nunca en el TurnStarted del grupo.</summary>
+    public string? Curiosidad { get; set; }
     public int FaseNumero { get; set; } = 1;
     public string? FaseNombre { get; set; }
     public string? FaseColor { get; set; }

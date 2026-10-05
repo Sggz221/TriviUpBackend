@@ -171,7 +171,7 @@ public class GameServicePresencialTests
     }
 
     [Fact]
-    public async Task NormalMode_NeverSendsHostInfo()
+    public async Task NormalMode_WithoutCuriosidad_NeverSendsHostInfo()
     {
         var roomCode = await StartRoomAsync(mode: GameMode.Normal);
         var s = await SessionAsync(roomCode);
@@ -179,6 +179,61 @@ public class GameServicePresencialTests
         await _service.SubmitAnswerAsync(roomCode, s.GetCurrentPlayerId()!.Value, Current(s).Id, CorrectIndex(s));
 
         Assert.Empty(_sentToClient);
+    }
+
+    // ========== Curiosidad (solo anfitrión) ==========
+
+    private const string Curiosidad = "Dato curioso que solo ve el anfitrión";
+
+    [Theory]
+    [InlineData(GameMode.Normal)]
+    [InlineData(GameMode.Presencial)]
+    public async Task Curiosidad_OnlySentToHostConnection_NeverToGroup(GameMode mode)
+    {
+        _questions.ForEach(q => q.Curiosidad = Curiosidad);
+        await _service.CreateGameAsync(1L, Owner, "owner", "conn-owner", null, mode);
+        var roomCode = (await _store.GetUserRoomAsync(Owner))!;
+        await _service.JoinGameAsync(roomCode, 200L, "p200", "conn-200");
+        await _service.JoinGameAsync(roomCode, 300L, "p300", "conn-300");
+        await _service.StartGameAsync(roomCode, Owner);
+        var s = await SessionAsync(roomCode);
+
+        var hostInfo = Assert.Single(_sentToClient);
+        Assert.Equal("conn-owner", hostInfo.ConnectionId);
+        var dto = Assert.IsType<HostQuestionInfoDto>(hostInfo.Payload);
+        Assert.Equal(Current(s).Id, dto.QuestionId);
+        Assert.Equal(Curiosidad, dto.Curiosidad);
+        // La respuesta correcta sigue siendo solo del modo presencial.
+        Assert.Equal(mode == GameMode.Presencial ? CorrectIndex(s) : null, dto.CorrectAnswerIndex);
+
+        Assert.All(_sent, m => Assert.DoesNotContain(Curiosidad, System.Text.Json.JsonSerializer.Serialize(m.Payload)));
+    }
+
+    [Fact]
+    public async Task Curiosidad_NormalMode_SentToHostOnEveryTurn()
+    {
+        _questions.ForEach(q => q.Curiosidad = $"Curiosidad {q.Id}");
+        var roomCode = await StartRoomAsync(players: 2, mode: GameMode.Normal);
+        var s = await SessionAsync(roomCode);
+
+        await _service.SubmitAnswerAsync(roomCode, s.GetCurrentPlayerId()!.Value, Current(s).Id, CorrectIndex(s));
+
+        s = await SessionAsync(roomCode);
+        var dto = Assert.IsType<HostQuestionInfoDto>(Assert.Single(_sentToClient).Payload);
+        Assert.Equal(Current(s).Id, dto.QuestionId);
+        Assert.Equal($"Curiosidad {Current(s).Id}", dto.Curiosidad);
+    }
+
+    [Fact]
+    public async Task Rejoin_NormalMode_IncludesCuriosidadInHostInfo()
+    {
+        _questions.ForEach(q => q.Curiosidad = Curiosidad);
+        var roomCode = await StartRoomAsync(mode: GameMode.Normal);
+
+        var rejoin = (await _service.GetRejoinStateAsync(roomCode))!;
+
+        Assert.Equal(Curiosidad, rejoin.HostInfo!.Curiosidad);
+        Assert.Null(rejoin.HostInfo.CorrectAnswerIndex);
     }
 
     // ========== Marcar ==========

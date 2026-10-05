@@ -36,6 +36,10 @@ public class Pregunta : ITimestamped
     [MaxLength(2000)]
     public string? ImagenUrl { get; set; }
 
+    /// <summary>Dato curioso de la pregunta: solo lo ve el anfitrión, tras revelarse la respuesta.</summary>
+    [MaxLength(1000)]
+    public string? Curiosidad { get; set; }
+
     /// <summary>Dificultad: facil, media, dificil o null (ver <see cref="Dificultades"/>).</summary>
     [MaxLength(10)]
     public string? Dificultad { get; set; }

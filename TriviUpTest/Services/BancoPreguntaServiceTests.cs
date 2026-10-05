@@ -86,6 +86,32 @@ public class BancoPreguntaServiceTests : IDisposable
         Assert.IsType<QuizValidationError>(result.Error);
     }
 
+    // ===== Curiosidad =====
+
+    [Theory]
+    [InlineData("  París se llamaba Lutecia  ", "París se llamaba Lutecia")]
+    [InlineData("   ", null)]
+    [InlineData(null, null)]
+    public async Task CreateAsync_Curiosidad_IsTrimmedAndBlankBecomesNull(string? enviada, string? esperada)
+    {
+        var result = await _service.CreateAsync(Request() with { Curiosidad = enviada }, userId: 1);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(esperada, result.Value.Curiosidad);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_CanChangeAndClearCuriosidad()
+    {
+        var creada = (await _service.CreateAsync(Request() with { Curiosidad = "Antes" }, userId: 1)).Value;
+
+        var cambiada = await _service.UpdateAsync(creada.Id, Request() with { Curiosidad = "Después" }, userId: 1);
+        Assert.Equal("Después", cambiada.Value.Curiosidad);
+
+        var quitada = await _service.UpdateAsync(creada.Id, Request(), userId: 1);
+        Assert.Null(quitada.Value.Curiosidad);
+    }
+
     // ===== Dificultad =====
 
     [Theory]

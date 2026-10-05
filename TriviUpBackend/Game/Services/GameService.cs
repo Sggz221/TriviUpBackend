@@ -1696,10 +1696,16 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     /// <summary>Respuesta correcta de la pregunta en curso para el anfitrión (null si no es modo presencial).</summary>
     private static HostQuestionInfoDto? BuildHostQuestionInfo(GameSessionDocument session)
     {
-        if (session.Mode != GameMode.Presencial || session.CurrentQuestionIndex >= session.Questions.Count) return null;
+        if (session.CurrentQuestionIndex >= session.Questions.Count) return null;
 
         var question = session.Questions[session.CurrentQuestionIndex];
-        return new HostQuestionInfoDto(question.Id, question.Respuestas.FindIndex(r => r.EsCorrecta));
+        var presencial = session.Mode == GameMode.Presencial;
+        if (!presencial && string.IsNullOrWhiteSpace(question.Curiosidad)) return null;
+
+        return new HostQuestionInfoDto(
+            question.Id,
+            presencial ? question.Respuestas.FindIndex(r => r.EsCorrecta) : null,
+            question.Curiosidad);
     }
 
     private async Task BroadcastAnswerMarkedAsync(GameSessionDocument session)
@@ -1720,7 +1726,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
         await hubContext.Clients.Group(session.RoomCode).SendAsync("TurnStarted", turnStartedDto);
 
-        // La respuesta correcta solo le llega al anfitrión, nunca al grupo.
+        // La respuesta correcta y la curiosidad solo le llegan al anfitrión, nunca al grupo.
         var hostInfo = BuildHostQuestionInfo(session);
         var owner = session.Players.FirstOrDefault(p => p.UserId == session.OwnerId);
         if (hostInfo is not null && !string.IsNullOrEmpty(owner?.ConnectionId))

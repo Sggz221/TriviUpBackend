@@ -81,6 +81,16 @@ public class QuestionPoolTests
     }
 
     [Fact]
+    public async Task Draw_KeepsCuriosidadFromBank()
+    {
+        Banco(1).Curiosidad = "Dato curioso";
+
+        var pregunta = Assert.Single(await PoolDrawer.DrawAsync(QuizCon(Filtros(1, 1)), _bancoRepo.Object, new Random(1)));
+
+        Assert.Equal("Dato curioso", pregunta.Curiosidad);
+    }
+
+    [Fact]
     public async Task Draw_TakesExactlyTheRequestedAmount()
     {
         for (var i = 1; i <= 10; i++) Banco(i);

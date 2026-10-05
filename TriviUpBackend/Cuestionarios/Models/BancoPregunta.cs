@@ -28,6 +28,10 @@ public class BancoPregunta : ITimestamped
     [MaxLength(2000)]
     public string? ImagenUrl { get; set; }
 
+    /// <summary>Dato curioso de la pregunta: solo lo ve el anfitrión, tras revelarse la respuesta.</summary>
+    [MaxLength(1000)]
+    public string? Curiosidad { get; set; }
+
     /// <summary>Respuestas serializadas como JSON (<see cref="BancoRespuesta"/>).</summary>
     [Required]
     public string RespuestasJson { get; set; } = "[]";

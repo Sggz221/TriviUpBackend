@@ -64,6 +64,12 @@ public record CreatePreguntaRequest
     public string? ImagenUrl { get; init; }
 
     /// <summary>
+    /// Dato curioso de la pregunta (opcional): solo lo ve el anfitrión.
+    /// </summary>
+    [MaxLength(1000, ErrorMessage = "La curiosidad no puede exceder 1000 caracteres")]
+    public string? Curiosidad { get; init; }
+
+    /// <summary>
     /// Dificultad: facil, media o dificil (opcional).
     /// </summary>
     [MaxLength(10, ErrorMessage = "Dificultad no válida")]

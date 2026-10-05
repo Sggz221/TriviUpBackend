@@ -167,6 +167,7 @@ public class BancoPreguntaService(
     {
         pregunta.Enunciado = request.Enunciado.Trim();
         pregunta.ImagenUrl = string.IsNullOrWhiteSpace(request.ImagenUrl) ? null : request.ImagenUrl;
+        pregunta.Curiosidad = string.IsNullOrWhiteSpace(request.Curiosidad) ? null : request.Curiosidad.Trim();
         pregunta.Respuestas = request.Respuestas
             .Select(r => new BancoRespuesta { Texto = r.Texto.Trim(), EsCorrecta = r.EsCorrecta })
             .ToList();

@@ -15,7 +15,7 @@ public partial class CuestionarioTools(TriviUpApiClient client)
                  "sin saltos, y todas las preguntas de una misma fase deben compartir faseNombre y faseColor.")]
     public Task<string> CrearCuestionario(
         [Description("Nombre del cuestionario (máx. 100 caracteres)")] string nombre,
-        [Description("Preguntas del cuestionario. Cada una: numeroPregunta, enunciado, respuestas [{texto, esCorrecta}], y opcionalmente imagenUrl, dificultad, faseNumero, faseNombre, faseColor.")] List<PreguntaCuestionarioInput> preguntas,
+        [Description("Preguntas del cuestionario. Cada una: numeroPregunta, enunciado, respuestas [{texto, esCorrecta}], y opcionalmente imagenUrl, dificultad, faseNumero, faseNombre, faseColor y curiosidad (dato curioso que solo ve el anfitrión, máx. 1000).")] List<PreguntaCuestionarioInput> preguntas,
         [Description("Si el cuestionario es visible públicamente (por defecto false)")] bool esPublico = false,
         [Description("Si se guarda como borrador: se relajan las validaciones (por defecto false)")] bool esBorrador = false,
         CancellationToken ct = default)

@@ -16,6 +16,10 @@ public record BancoPreguntaRequest
     [MaxLength(2000, ErrorMessage = "La URL de imagen no puede exceder 2000 caracteres")]
     public string? ImagenUrl { get; init; }
 
+    /// <summary>Dato curioso de la pregunta (opcional): solo lo ve el anfitrión.</summary>
+    [MaxLength(1000, ErrorMessage = "La curiosidad no puede exceder 1000 caracteres")]
+    public string? Curiosidad { get; init; }
+
     [Required(ErrorMessage = "Las respuestas son obligatorias")]
     public List<BancoRespuestaRequest> Respuestas { get; init; } = new();
 
@@ -53,6 +57,9 @@ public record BancoPreguntaResponse
     [property: JsonPropertyName("imagenUrl")]
     public string? ImagenUrl { get; init; }
 
+    [property: JsonPropertyName("curiosidad")]
+    public string? Curiosidad { get; init; }
+
     [property: JsonPropertyName("respuestas")]
     public List<BancoRespuestaResponse> Respuestas { get; init; } = new();
 
@@ -76,6 +83,7 @@ public record BancoPreguntaResponse
         Id = p.Id,
         Enunciado = p.Enunciado,
         ImagenUrl = p.ImagenUrl,
+        Curiosidad = p.Curiosidad,
         Respuestas = p.Respuestas.Select(r => new BancoRespuestaResponse { Texto = r.Texto, EsCorrecta = r.EsCorrecta }).ToList(),
         Dificultad = Dificultades.NormalizarOSinClasificar(p.Dificultad),
         CategoriaId = p.CategoriaId,

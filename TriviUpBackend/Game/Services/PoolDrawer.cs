@@ -60,6 +60,7 @@ public static class PoolDrawer
         CreatorId = quiz.CreatorId,
         Enunciado = p.Enunciado,
         ImagenUrl = p.ImagenUrl,
+        Curiosidad = p.Curiosidad,
         Dificultad = p.Dificultad,
         Tipo = TiposPregunta.Normal,
         FaseNumero = pool.FaseNumero,

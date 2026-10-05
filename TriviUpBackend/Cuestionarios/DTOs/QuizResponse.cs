@@ -64,6 +64,7 @@ public record QuizResponse
                 NumeroPregunta = p.NumeroPregunta,
                 Enunciado = p.Enunciado,
                 ImagenUrl = p.ImagenUrl,
+                Curiosidad = p.Curiosidad,
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
                 FaseColor = FaseColores.NormalizarOSinColor(p.FaseColor),
@@ -135,6 +136,10 @@ public record PreguntaResponse
     [property: JsonPropertyName("imagenUrl")]
     public string? ImagenUrl { get; init; }
 
+    /// <summary>Dato curioso de la pregunta: solo lo ve el anfitrión (y el autor en el editor).</summary>
+    [property: JsonPropertyName("curiosidad")]
+    public string? Curiosidad { get; init; }
+
     [property: JsonPropertyName("faseNumero")]
     public int FaseNumero { get; init; } = 1;
 
@@ -162,6 +167,7 @@ public record PreguntaResponse
         NumeroPregunta = pregunta.NumeroPregunta,
         Enunciado = pregunta.Enunciado,
         ImagenUrl = pregunta.ImagenUrl,
+        Curiosidad = pregunta.Curiosidad,
         FaseNumero = pregunta.FaseNumero,
         FaseNombre = pregunta.FaseNombre,
         FaseColor = pregunta.FaseColor,

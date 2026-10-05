@@ -51,6 +51,7 @@ public class QuizService(
                 NumeroPregunta = p.NumeroPregunta,
                 Enunciado = p.Enunciado,
                 ImagenUrl = p.ImagenUrl,
+                Curiosidad = NormalizeCuriosidad(p.Curiosidad),
                 FaseNumero = p.FaseNumero,
                 FaseNombre = NormalizeFaseNombre(p.FaseNombre),
                 FaseColor = FaseColores.NormalizarOSinColor(p.FaseColor),
@@ -154,6 +155,7 @@ public class QuizService(
                 NumeroPregunta = p.NumeroPregunta,
                 Enunciado = p.Enunciado,
                 ImagenUrl = p.ImagenUrl,
+                Curiosidad = p.Curiosidad,
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
                 FaseColor = p.FaseColor,
@@ -485,6 +487,7 @@ public class QuizService(
                 NumeroPregunta = preguntaRequest.NumeroPregunta,
                 Enunciado = preguntaRequest.Enunciado,
                 ImagenUrl = preguntaRequest.ImagenUrl,
+                Curiosidad = NormalizeCuriosidad(preguntaRequest.Curiosidad),
                 FaseNumero = preguntaRequest.FaseNumero,
                 FaseNombre = NormalizeFaseNombre(preguntaRequest.FaseNombre),
                 FaseColor = FaseColores.NormalizarOSinColor(preguntaRequest.FaseColor),
@@ -511,6 +514,7 @@ public class QuizService(
                 NumeroPregunta = p.NumeroPregunta,
                 Enunciado = p.Enunciado,
                 ImagenUrl = p.ImagenUrl,
+                Curiosidad = p.Curiosidad,
                 FaseNumero = p.FaseNumero,
                 FaseNombre = p.FaseNombre,
                 FaseColor = p.FaseColor,
@@ -712,6 +716,9 @@ public class QuizService(
 
     private static string? NormalizeFaseNombre(string? nombre) =>
         string.IsNullOrWhiteSpace(nombre) ? null : nombre.Trim();
+
+    private static string? NormalizeCuriosidad(string? curiosidad) =>
+        string.IsNullOrWhiteSpace(curiosidad) ? null : curiosidad.Trim();
 
     /// <summary>
     /// Cada pool debe sacar al menos una pregunta; los manuales necesitan preguntas elegidas
