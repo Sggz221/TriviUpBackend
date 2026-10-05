@@ -181,7 +181,32 @@ public record TurnStartedDto(
     bool ColorOpen = false,
     ColorHsb? ColorTarget = null,
     /// <summary>Jugadores que ya han enviado su color (sin revelar cuál, hasta que se resuelve).</summary>
-    List<long>? ColorSubmittedPlayerIds = null
+    List<long>? ColorSubmittedPlayerIds = null,
+    /// <summary>Pregunta de ocarina (IsDynamic también es true: no tiene turno).</summary>
+    bool IsOcarina = false,
+    /// <summary>Prueba de ocarina abierta: el primero que toque <see cref="OcarinaMelody"/> responde.</summary>
+    bool OcarinaOpen = false,
+    List<OcarinaNoteDto>? OcarinaMelody = null,
+    /// <summary>Lo que le queda a la melodía por sonar (0 = ya se puede tocar).</summary>
+    int OcarinaListenRemainingMs = 0
+);
+
+/// <summary>Nota de la melodía de la ocarina: botón 0-4 y figura (Semicorchea, Corchea, Negra, Blanca).</summary>
+public record OcarinaNoteDto(
+    int Pitch,
+    string Figure
+);
+
+/// <summary>Resultado de un intento de tocar la melodía (solo para quien lo envía).</summary>
+public record OcarinaAttemptResultDto(
+    bool Correct
+);
+
+/// <summary>Pregunta de ocarina: alguien ha tocado bien la melodía y se lleva la pregunta.</summary>
+public record OcarinaWonDto(
+    long QuestionId,
+    long PlayerId,
+    string Username
 );
 
 /// <summary>Pregunta de colores: alguien ha enviado su color (no se revela cuál hasta el final).</summary>

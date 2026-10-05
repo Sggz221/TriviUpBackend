@@ -83,6 +83,13 @@ public interface IGameService
     Task<Result> SubmitColorAsync(string roomCode, long userId, long questionId, ColorHsb color);
 
     /// <summary>
+    /// Pregunta de ocarina: intento de tocar la melodía (botones 0-4 en orden). Si acierta el primero, se lleva
+    /// la pregunta; si falla, puede volver a intentarlo. No se aceptan intentos mientras suena la melodía.
+    /// </summary>
+    /// <returns>true si ha acertado y gana la pregunta; false si ha fallado.</returns>
+    Task<Result<bool>> SubmitOcarinaAsync(string roomCode, long userId, long questionId, IReadOnlyList<int> notes);
+
+    /// <summary>
     /// Usa un comodín del jugador sobre la pregunta actual. Los de turno (Ruleta, Doble o nada)
     /// solo los puede usar quien responde; los de fuera de turno (Robo, Apuesta), el resto.
     /// </summary>

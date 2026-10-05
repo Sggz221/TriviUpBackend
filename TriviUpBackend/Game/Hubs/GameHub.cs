@@ -360,6 +360,21 @@ public class GameHub : Hub
     }
 
     /// <summary>
+    /// Pregunta de ocarina: intento de tocar la melodía con los botones (0-4, en orden).
+    /// Devuelve solo a quien lo intenta si ha acertado.
+    /// </summary>
+    public async Task<OcarinaAttemptResultDto> SubmitOcarina(string roomCode, long userId, long questionId, List<int> notes)
+    {
+        var result = await _gameService.SubmitOcarinaAsync(roomCode, userId, questionId, notes);
+        if (result.IsFailure)
+        {
+            _logger.LogDebug("User {UserId} could not play the ocarina in room {RoomCode}: {Error}", userId, roomCode, result.Error);
+            throw new HubException(result.Error);
+        }
+        return new OcarinaAttemptResultDto(result.Value);
+    }
+
+    /// <summary>
     /// Usa un comodín (Ruleta, DobleONada, Robo, Apuesta). Método anónimo con userId como parámetro.
     /// <paramref name="predictsCorrect"/> solo aplica a la Apuesta.
     /// </summary>

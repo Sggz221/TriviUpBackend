@@ -602,6 +602,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         if (session.AwaitingNextQuestion) return Result.Failure("La respuesta ya está confirmada.");
         if (session.BuzzerOpen) return Result.Failure("Todavía no ha pulsado ningún equipo.");
         if (session.ColorOpen) return Result.Failure("La prueba de colores aún no ha terminado.");
+        if (session.OcarinaOpen) return Result.Failure("Todavía nadie ha tocado la melodía.");
         if (session.CurrentQuestionIndex >= session.Questions.Count ||
             session.Questions[session.CurrentQuestionIndex].Id != questionId)
         {
@@ -1305,9 +1306,17 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         // Expulsado en mitad de un robo: la pregunta vuelve al jugador original con el tiempo completo.
         else if (wasBuzzWinner && session.State == GameState.Playing)
         {
-            // Expulsado quien había pulsado: la pregunta dinámica vuelve a abrirse a todos.
+            // Expulsado quien había pulsado o tocado la melodía: la pregunta vuelve a abrirse a todos
+            // (en la ocarina la melodía ya sonó, así que se puede tocar enseguida).
             session.BuzzWinnerId = null;
-            session.BuzzerOpen = true;
+            if (session.Questions[session.CurrentQuestionIndex].EsOcarina)
+            {
+                session.OcarinaOpen = true;
+            }
+            else
+            {
+                session.BuzzerOpen = true;
+            }
             await RestartCurrentTurnAsync(session);
         }
         else if (wasActiveThief && session.State == GameState.Playing)
@@ -1471,8 +1480,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <summary>
-    /// Al empezar una pregunta sin turno abre su fase de espera: el pulsador, o la prueba de colores con un
-    /// color objetivo al azar (distinto en cada pregunta de colores).
+    /// Al empezar una pregunta sin turno abre su fase de espera: el pulsador, la prueba de colores con un
+    /// color objetivo al azar, o la ocarina con una melodía al azar (distintos en cada pregunta).
     /// </summary>
     private static void OpenQuestionWithoutTurn(GameSessionDocument session)
     {
@@ -1481,6 +1490,66 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         session.ColorOpen = question?.EsColores == true;
         session.ColorTarget = session.ColorOpen ? ColorMatch.RandomTarget(Random.Shared) : null;
         session.ColorGuesses = new();
+        session.OcarinaOpen = question?.EsOcarina == true;
+        session.OcarinaMelody = session.OcarinaOpen ? OcarinaMelody.Random(Random.Shared) : null;
+        session.OcarinaListenUntilUnixMs = session.OcarinaOpen
+            ? DateTimeOffset.UtcNow.AddMilliseconds(OcarinaMelody.PlaybackMs(session.OcarinaMelody!)).ToUnixTimeMilliseconds()
+            : null;
+    }
+
+    /// <summary>Lo que le queda a la melodía de la ocarina por sonar (0 si ya ha terminado o no hay).</summary>
+    private static int OcarinaListenRemainingMs(GameSessionDocument session) =>
+        session.OcarinaListenUntilUnixMs is { } until
+            ? (int)Math.Max(0, until - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+            : 0;
+
+    /// <inheritdoc />
+    public async Task<Result<bool>> SubmitOcarinaAsync(string roomCode, long userId, long questionId, IReadOnlyList<int> notes)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure<bool>("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        if (session is null) return Result.Failure<bool>("Room not found.");
+        if (session.State != GameState.Playing) return Result.Failure<bool>("La partida no está en juego.");
+
+        var player = session.Players.FirstOrDefault(p => p.UserId == userId);
+        if (player is null || !player.CanPlay()) return Result.Failure<bool>("Solo los jugadores pueden tocar la ocarina.");
+
+        if (session.CurrentQuestionIndex >= session.Questions.Count ||
+            session.Questions[session.CurrentQuestionIndex].Id != questionId)
+        {
+            return Result.Failure<bool>("La pregunta ya ha cambiado.");
+        }
+
+        if (!session.OcarinaOpen || session.OcarinaMelody is null) return Result.Failure<bool>("Otro equipo ya ha tocado la melodía.");
+        if (OcarinaListenRemainingMs(session) > 0) return Result.Failure<bool>("Espera a que termine de sonar la melodía.");
+        if (notes.Any(n => n is < 0 or >= OcarinaMelody.PitchCount)) return Result.Failure<bool>("Nota no válida.");
+
+        if (!OcarinaMelody.Matches(session.OcarinaMelody, notes))
+        {
+            // Fallo: solo lo sabe quien lo intenta, que puede volver a probar.
+            return Result.Success(false);
+        }
+
+        // Dentro del lock el primero que acierta gana; los demás se encuentran la prueba cerrada.
+        session.OcarinaOpen = false;
+        session.BuzzWinnerId = userId;
+        session.TurnStartedAt = DateTime.UtcNow;
+        session.TurnGeneration++;
+        await _store.ClearDeadlineAsync(roomCode);
+        await StartTurnDeadlineAsync(session);
+
+        _logger.LogInformation("User {UserId} played the ocarina melody first in room {RoomCode}", userId, roomCode);
+
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+            await hubContext.Clients.Group(roomCode).SendAsync("OcarinaWon", new OcarinaWonDto(questionId, userId, player.Username));
+        }
+
+        await BroadcastTurnStartedAsync(session);
+        return Result.Success(true);
     }
 
     /// <summary>Jugadores que compiten en la prueba de colores: los que juegan y siguen conectados.</summary>
@@ -1762,7 +1831,10 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     /// <summary>Segundos visibles por turno (0 = sin límite).</summary>
     /// <summary>Segundos del turno en curso. La prueba de colores siempre dura lo mismo, en cualquier modo.</summary>
     private int GetTurnLimitSeconds(GameSessionDocument session) =>
-        session.ColorOpen ? ColorMatch.ChallengeSeconds : session.TurnTimeLimitSeconds ?? Math.Max(0, _options.QuestionTimeLimit - 1);
+        session.ColorOpen ? ColorMatch.ChallengeSeconds
+        // La ocarina no tiene límite: dura hasta que alguien acierta o el anfitrión salta la pregunta.
+        : session.OcarinaOpen ? 0
+        : session.TurnTimeLimitSeconds ?? Math.Max(0, _options.QuestionTimeLimit - 1);
 
     /// <summary>
     /// Segundos visibles que le quedan a quien responde (los mismos que muestra su
@@ -1838,7 +1910,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             question.EsColores,
             session.ColorOpen,
             session.ColorOpen ? session.ColorTarget : null,
-            session.ColorOpen ? session.ColorGuesses.Select(g => g.UserId).ToList() : null
+            session.ColorOpen ? session.ColorGuesses.Select(g => g.UserId).ToList() : null,
+            question.EsOcarina,
+            session.OcarinaOpen,
+            session.OcarinaOpen ? session.OcarinaMelody?.Select(n => new OcarinaNoteDto(n.Pitch, n.Figure.ToString())).ToList() : null,
+            session.OcarinaOpen ? OcarinaListenRemainingMs(session) : 0
         );
     }
 

@@ -90,8 +90,19 @@ public sealed class GameSessionDocument
     /// <summary>Colores enviados en la prueba actual (uno por jugador).</summary>
     public List<ColorGuessDocument> ColorGuesses { get; set; } = new();
 
-    /// <summary>Pregunta sin turno a la espera de ganador (pulsador o prueba de colores abiertos).</summary>
-    public bool IsWaitingForWinner => BuzzerOpen || ColorOpen;
+    // ---- Pregunta de Ocarina: tocar la melodía (se reinicia en cada pregunta) ----
+
+    /// <summary>Prueba de ocarina en curso: todavía no responde nadie.</summary>
+    public bool OcarinaOpen { get; set; }
+
+    /// <summary>Melodía a tocar en la pregunta de ocarina actual (al azar en cada pregunta).</summary>
+    public List<OcarinaNote>? OcarinaMelody { get; set; }
+
+    /// <summary>Hasta cuándo suena la melodía: antes no se aceptan intentos.</summary>
+    public long? OcarinaListenUntilUnixMs { get; set; }
+
+    /// <summary>Pregunta sin turno a la espera de ganador (pulsador, colores u ocarina abiertos).</summary>
+    public bool IsWaitingForWinner => BuzzerOpen || ColorOpen || OcarinaOpen;
 
     /// <summary>
     /// Jugador al que le toca la pregunta: el que ganó el pulsador o la prueba de colores en una pregunta
@@ -122,6 +133,9 @@ public sealed class GameSessionDocument
         ColorOpen = false;
         ColorTarget = null;
         ColorGuesses = new();
+        OcarinaOpen = false;
+        OcarinaMelody = null;
+        OcarinaListenUntilUnixMs = null;
         MarkedAnswerIndex = null;
         AwaitingNextQuestion = false;
         LastTurnResult = null;
@@ -208,8 +222,11 @@ public sealed class QuestionSnapshot
     /// <summary>Pregunta de colores: el que mejor imita un color al azar se lleva la pregunta.</summary>
     public bool EsColores { get; set; }
 
-    /// <summary>Pregunta sin turno (pulsador o colores).</summary>
-    public bool SinTurno => EsPulsador || EsColores;
+    /// <summary>Pregunta de ocarina: el primero en tocar la melodía se lleva la pregunta.</summary>
+    public bool EsOcarina { get; set; }
+
+    /// <summary>Pregunta sin turno (pulsador, colores u ocarina).</summary>
+    public bool SinTurno => EsPulsador || EsColores || EsOcarina;
     public List<AnswerSnapshot> Respuestas { get; set; } = new();
 }
 
