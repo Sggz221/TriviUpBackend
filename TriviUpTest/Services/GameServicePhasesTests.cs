@@ -176,7 +176,7 @@ public class GameServicePhasesTests
     [Fact]
     public async Task SinglePhaseQuiz_NeverEntersPhaseBreak()
     {
-        _questions = [Q(1, 1, null), Q(2, 1, null), Q(3, 1, null)];
+        _questions = [Q(1, 1, null), Q(2, 1, null), Q(3, 1, null), Q(4, 1, null)];
         var roomCode = await StartRoomAsync();
 
         await AnswerCurrentAsync(roomCode);

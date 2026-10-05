@@ -251,7 +251,8 @@ public class QuestionPoolTests
         Assert.NotNull(await service.StartGameAsync(roomCode, 100L));
 
         var session = (await store.GetAsync(roomCode))!;
-        Assert.Equal([1, 2, 2], session.Questions.Select(q => q.FaseNumero));
+        // 3 preguntas y 2 jugadores: se descarta la última para que ambos respondan lo mismo.
+        Assert.Equal([1, 2], session.Questions.Select(q => q.FaseNumero));
         Assert.Equal(100L, session.Questions[0].Id);
         Assert.All(session.Questions.Skip(1), q => Assert.True(q.Id < 0));
     }

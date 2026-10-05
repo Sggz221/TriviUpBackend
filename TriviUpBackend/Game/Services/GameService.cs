@@ -432,6 +432,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return null;
         }
 
+        // Todos los jugadores responden las mismas preguntas: se descartan las últimas que sobran.
+        questions = FairTurnPlanner.TrimToFair(questions, playerIds.Count, q => q.Tipo == Cuestionarios.Entities.TiposPregunta.Pulsador);
+
         session.Questions = GameSessionMapper.SnapshotQuestions(questions);
         session.TurnQueue = playerIds;
         session.State = GameState.Playing;
@@ -1423,7 +1426,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
     private async Task StartNextTurnAsync(GameSessionDocument session)
     {
-        var nextPlayerId = session.RotateTurn();
+        // Una pregunta de pulsador no gasta turno: la cola solo avanza tras una pregunta por turno.
+        var previousWasBuzzer = session.CurrentQuestionIndex > 0 && session.Questions[session.CurrentQuestionIndex - 1].EsPulsador;
+        var nextPlayerId = previousWasBuzzer ? session.TurnQueue.Cast<long?>().FirstOrDefault() : session.RotateTurn();
         if (nextPlayerId is null)
         {
             await EndGameAsync(session);
