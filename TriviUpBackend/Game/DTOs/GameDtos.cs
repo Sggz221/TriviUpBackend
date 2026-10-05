@@ -1,3 +1,5 @@
+using TriviUpBackend.Game.Models;
+
 namespace TriviUpBackend.Game.DTOs;
 
 /// <summary>
@@ -172,7 +174,42 @@ public record TurnStartedDto(
     bool IsDynamic = false,
     bool BuzzerOpen = false,
     /// <summary>Jugador al que se le oculta el texto de las respuestas en esta pregunta (null = nadie).</summary>
-    long? TextHiddenForPlayerId = null
+    long? TextHiddenForPlayerId = null,
+    /// <summary>Pregunta de colores (IsDynamic también es true: no tiene turno).</summary>
+    bool IsColor = false,
+    /// <summary>Prueba de colores abierta: todos imitan <see cref="ColorTarget"/> (CurrentPlayerId = 0).</summary>
+    bool ColorOpen = false,
+    ColorHsb? ColorTarget = null,
+    /// <summary>Jugadores que ya han enviado su color (sin revelar cuál, hasta que se resuelve).</summary>
+    List<long>? ColorSubmittedPlayerIds = null
+);
+
+/// <summary>Pregunta de colores: alguien ha enviado su color (no se revela cuál hasta el final).</summary>
+public record ColorSubmittedDto(
+    long QuestionId,
+    long PlayerId
+);
+
+/// <summary>Color enviado por un jugador y su parecido con el objetivo (0-100).</summary>
+public record ColorGuessDto(
+    long PlayerId,
+    string Username,
+    ColorHsb Color,
+    double Similarity
+);
+
+/// <summary>
+/// Resultado de la prueba de colores: los colores de todos, ordenados de más a menos parecido, y el ganador
+/// (null si nadie envió color: la pregunta se pasa sin puntos).
+/// </summary>
+public record ColorChallengeResultDto(
+    long QuestionId,
+    ColorHsb Target,
+    List<ColorGuessDto> Guesses,
+    long? WinnerId,
+    string? WinnerUsername,
+    /// <summary>Hubo empate en el mejor parecido y el ganador se eligió al azar.</summary>
+    bool TieBroken
 );
 
 /// <summary>

@@ -79,16 +79,33 @@ public sealed class GameSessionDocument
     /// <summary>Equipo que pulsó primero y responde la pregunta dinámica (null mientras el pulsador está abierto).</summary>
     public long? BuzzWinnerId { get; set; }
 
-    /// <summary>Jugador al que le toca la pregunta: el que pulsó primero en una ronda dinámica o, si no, el de la cola de turnos.</summary>
+    // ---- Pregunta de Colores: prueba de imitar el color (se reinicia en cada pregunta) ----
+
+    /// <summary>Prueba de colores en curso: todavía no responde nadie.</summary>
+    public bool ColorOpen { get; set; }
+
+    /// <summary>Color a imitar en la pregunta de colores actual (al azar en cada pregunta).</summary>
+    public ColorHsb? ColorTarget { get; set; }
+
+    /// <summary>Colores enviados en la prueba actual (uno por jugador).</summary>
+    public List<ColorGuessDocument> ColorGuesses { get; set; } = new();
+
+    /// <summary>Pregunta sin turno a la espera de ganador (pulsador o prueba de colores abiertos).</summary>
+    public bool IsWaitingForWinner => BuzzerOpen || ColorOpen;
+
+    /// <summary>
+    /// Jugador al que le toca la pregunta: el que ganó el pulsador o la prueba de colores en una pregunta
+    /// sin turno o, si no, el de la cola de turnos.
+    /// </summary>
     public long? GetCurrentPlayerId() =>
-        BuzzerOpen ? null : BuzzWinnerId ?? (TurnQueue.Count > 0 ? TurnQueue[0] : null);
+        IsWaitingForWinner ? null : BuzzWinnerId ?? (TurnQueue.Count > 0 ? TurnQueue[0] : null);
 
     /// <summary>Quien responde ahora: el ladrón durante un robo o, si no, el jugador en turno.</summary>
     public long? GetAnsweringPlayerId() => StealActive && StolenById.HasValue ? StolenById : GetCurrentPlayerId();
 
-    /// <summary>La pregunta en curso es de pulsador.</summary>
+    /// <summary>La pregunta en curso no tiene turno (pulsador o colores): sin comodines ni cola.</summary>
     public bool IsCurrentQuestionDynamic() =>
-        CurrentQuestionIndex < Questions.Count && Questions[CurrentQuestionIndex].EsPulsador;
+        CurrentQuestionIndex < Questions.Count && Questions[CurrentQuestionIndex].SinTurno;
 
     public void ResetQuestionState()
     {
@@ -102,6 +119,9 @@ public sealed class GameSessionDocument
         CallActive = false;
         BuzzerOpen = false;
         BuzzWinnerId = null;
+        ColorOpen = false;
+        ColorTarget = null;
+        ColorGuesses = new();
         MarkedAnswerIndex = null;
         AwaitingNextQuestion = false;
         LastTurnResult = null;
@@ -156,6 +176,12 @@ public sealed class PlayerDocument
         CanPlay() ? ComodinReglas.UsosRestantes(mode, config, UsedComodines) : new();
 }
 
+public sealed class ColorGuessDocument
+{
+    public long UserId { get; set; }
+    public ColorHsb Color { get; set; } = new(0, 0, 0);
+}
+
 public sealed class BetDocument
 {
     public long UserId { get; set; }
@@ -178,6 +204,12 @@ public sealed class QuestionSnapshot
 
     /// <summary>Pregunta de pulsador: el primero en pulsar se lleva la pregunta.</summary>
     public bool EsPulsador { get; set; }
+
+    /// <summary>Pregunta de colores: el que mejor imita un color al azar se lleva la pregunta.</summary>
+    public bool EsColores { get; set; }
+
+    /// <summary>Pregunta sin turno (pulsador o colores).</summary>
+    public bool SinTurno => EsPulsador || EsColores;
     public List<AnswerSnapshot> Respuestas { get; set; } = new();
 }
 

@@ -11,7 +11,16 @@ public static class TiposPregunta
     /// <summary>Nadie tiene turno: el primer equipo en pulsar desde su móvil se lleva la pregunta.</summary>
     public const string Pulsador = "pulsador";
 
-    public static readonly IReadOnlyList<string> Todos = [Normal, Pulsador];
+    /// <summary>
+    /// Nadie tiene turno: todos imitan un color al azar con tres sliders y el que más se acerca
+    /// se lleva la pregunta.
+    /// </summary>
+    public const string Colores = "colores";
+
+    public static readonly IReadOnlyList<string> Todos = [Normal, Pulsador, Colores];
+
+    /// <summary>Preguntas sin turno: se las lleva quien gana el pulsador o la prueba de colores.</summary>
+    public static bool SinTurno(string? tipo) => tipo is Pulsador or Colores;
 
     /// <summary>Texto normalizado (minúsculas, sin espacios) o null si está vacío.</summary>
     public static string? Normalizar(string? valor) =>

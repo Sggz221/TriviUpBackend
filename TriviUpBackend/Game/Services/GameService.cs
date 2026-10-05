@@ -433,7 +433,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
 
         // Todos los jugadores responden las mismas preguntas: se descartan las últimas que sobran.
-        questions = FairTurnPlanner.TrimToFair(questions, playerIds.Count, q => q.Tipo == Cuestionarios.Entities.TiposPregunta.Pulsador);
+        questions = FairTurnPlanner.TrimToFair(questions, playerIds.Count, q => Cuestionarios.Entities.TiposPregunta.SinTurno(q.Tipo));
 
         session.Questions = GameSessionMapper.SnapshotQuestions(questions);
         session.TurnQueue = playerIds;
@@ -442,7 +442,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         session.CurrentQuestionIndex = 0;
         session.TurnStartedAt = DateTime.UtcNow;
         session.TurnGeneration++;
-        session.BuzzerOpen = session.IsCurrentQuestionDynamic();
+        OpenQuestionWithoutTurn(session);
 
         await StartTurnDeadlineAsync(session);
 
@@ -578,13 +578,13 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         if (session is null) return Result.Failure("Room not found.");
         if (session.OwnerId != ownerId) return Result.Failure("Solo el anfitrión puede pasar de pregunta.");
         if (session.State != GameState.Playing) return Result.Failure("La partida no está en juego.");
-        if (!session.AwaitingNextQuestion && !session.BuzzerOpen)
+        if (!session.AwaitingNextQuestion && !session.IsWaitingForWinner)
         {
             return Result.Failure("Todavía no se ha confirmado la respuesta.");
         }
 
-        // Con el pulsador abierto, el anfitrión puede saltar la pregunta si nadie pulsa.
-        if (session.BuzzerOpen)
+        // Con el pulsador o la prueba de colores abiertos, el anfitrión puede saltar la pregunta.
+        if (session.IsWaitingForWinner)
         {
             await _store.ClearDeadlineAsync(roomCode);
         }
@@ -601,6 +601,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         if (session.State != GameState.Playing) return Result.Failure("La partida no está en juego.");
         if (session.AwaitingNextQuestion) return Result.Failure("La respuesta ya está confirmada.");
         if (session.BuzzerOpen) return Result.Failure("Todavía no ha pulsado ningún equipo.");
+        if (session.ColorOpen) return Result.Failure("La prueba de colores aún no ha terminado.");
         if (session.CurrentQuestionIndex >= session.Questions.Count ||
             session.Questions[session.CurrentQuestionIndex].Id != questionId)
         {
@@ -806,7 +807,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     {
         var current = session.Questions[session.CurrentQuestionIndex];
         var candidates = Enumerable.Range(session.CurrentQuestionIndex + 1, session.Questions.Count - session.CurrentQuestionIndex - 1)
-            .Where(i => session.Questions[i].FaseNumero == current.FaseNumero && !session.Questions[i].EsPulsador)
+            .Where(i => session.Questions[i].FaseNumero == current.FaseNumero && !session.Questions[i].SinTurno)
             .ToList();
         return candidates.Count == 0 ? null : candidates[Random.Shared.Next(candidates.Count)];
     }
@@ -1108,6 +1109,14 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return;
         }
 
+        if (session.ColorOpen)
+        {
+            // Se acabó el tiempo de la prueba de colores: compiten los colores enviados hasta ahora.
+            await _store.ClearDeadlineAsync(roomCode);
+            await ResolveColorChallengeAsync(session);
+            return;
+        }
+
         var answeringPlayerId = session.GetAnsweringPlayerId();
         if (answeringPlayerId is null)
         {
@@ -1268,6 +1277,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         session.Players.Remove(playerToKick);
         session.TurnQueue.RemoveAll(id => id == playerIdToKick);
         session.Bets.RemoveAll(b => b.UserId == playerIdToKick);
+        session.ColorGuesses.RemoveAll(g => g.UserId == playerIdToKick);
 
         await _store.ClearUserRoomAsync(playerIdToKick);
         if (!string.IsNullOrEmpty(connectionIdToRemove))
@@ -1275,8 +1285,25 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             await _store.ClearConnectionMappingAsync(connectionIdToRemove);
         }
 
+        var isColorQuestion = session.CurrentQuestionIndex < session.Questions.Count &&
+                              session.Questions[session.CurrentQuestionIndex].EsColores;
+
+        if (wasBuzzWinner && isColorQuestion && session.State == GameState.Playing)
+        {
+            // Expulsado el ganador de la prueba de colores: se la lleva el siguiente que más se acercó.
+            session.BuzzWinnerId = null;
+            session.ColorOpen = true;
+            await _store.ClearDeadlineAsync(roomCode);
+            await ResolveColorChallengeAsync(session);
+        }
+        else if (session.ColorOpen && session.State == GameState.Playing && AllColorGuessesIn(session))
+        {
+            // El expulsado era el único que faltaba por enviar su color.
+            await _store.ClearDeadlineAsync(roomCode);
+            await ResolveColorChallengeAsync(session);
+        }
         // Expulsado en mitad de un robo: la pregunta vuelve al jugador original con el tiempo completo.
-        if (wasBuzzWinner && session.State == GameState.Playing)
+        else if (wasBuzzWinner && session.State == GameState.Playing)
         {
             // Expulsado quien había pulsado: la pregunta dinámica vuelve a abrirse a todos.
             session.BuzzWinnerId = null;
@@ -1426,8 +1453,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
     private async Task StartNextTurnAsync(GameSessionDocument session)
     {
-        // Una pregunta de pulsador no gasta turno: la cola solo avanza tras una pregunta por turno.
-        var previousWasBuzzer = session.CurrentQuestionIndex > 0 && session.Questions[session.CurrentQuestionIndex - 1].EsPulsador;
+        // Una pregunta sin turno (pulsador o colores) no gasta turno: la cola solo avanza tras una pregunta por turno.
+        var previousWasBuzzer = session.CurrentQuestionIndex > 0 && session.Questions[session.CurrentQuestionIndex - 1].SinTurno;
         var nextPlayerId = previousWasBuzzer ? session.TurnQueue.Cast<long?>().FirstOrDefault() : session.RotateTurn();
         if (nextPlayerId is null)
         {
@@ -1437,8 +1464,125 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         session.TurnStartedAt = DateTime.UtcNow;
         session.TurnGeneration++;
-        session.BuzzerOpen = session.IsCurrentQuestionDynamic();
+        OpenQuestionWithoutTurn(session);
 
+        await StartTurnDeadlineAsync(session);
+        await BroadcastTurnStartedAsync(session);
+    }
+
+    /// <summary>
+    /// Al empezar una pregunta sin turno abre su fase de espera: el pulsador, o la prueba de colores con un
+    /// color objetivo al azar (distinto en cada pregunta de colores).
+    /// </summary>
+    private static void OpenQuestionWithoutTurn(GameSessionDocument session)
+    {
+        var question = session.CurrentQuestionIndex < session.Questions.Count ? session.Questions[session.CurrentQuestionIndex] : null;
+        session.BuzzerOpen = question?.EsPulsador == true;
+        session.ColorOpen = question?.EsColores == true;
+        session.ColorTarget = session.ColorOpen ? ColorMatch.RandomTarget(Random.Shared) : null;
+        session.ColorGuesses = new();
+    }
+
+    /// <summary>Jugadores que compiten en la prueba de colores: los que juegan y siguen conectados.</summary>
+    private static IEnumerable<PlayerDocument> ColorContenders(GameSessionDocument session) =>
+        session.Players.Where(p => p.CanPlay() && p.IsConnected);
+
+    private static bool AllColorGuessesIn(GameSessionDocument session)
+    {
+        var contenders = ColorContenders(session).Select(p => p.UserId).ToList();
+        return contenders.Count > 0 && contenders.All(id => session.ColorGuesses.Any(g => g.UserId == id));
+    }
+
+    /// <inheritdoc />
+    public async Task<Result> SubmitColorAsync(string roomCode, long userId, long questionId, ColorHsb color)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        if (session is null) return Result.Failure("Room not found.");
+        if (session.State != GameState.Playing) return Result.Failure("La partida no está en juego.");
+
+        var player = session.Players.FirstOrDefault(p => p.UserId == userId);
+        if (player is null || !player.CanPlay()) return Result.Failure("Solo los jugadores pueden participar.");
+
+        if (session.CurrentQuestionIndex >= session.Questions.Count ||
+            session.Questions[session.CurrentQuestionIndex].Id != questionId)
+        {
+            return Result.Failure("La pregunta ya ha cambiado.");
+        }
+
+        if (!session.ColorOpen) return Result.Failure("La prueba de colores ya ha terminado.");
+        if (!color.IsValid()) return Result.Failure("Color no válido.");
+        if (session.ColorGuesses.Any(g => g.UserId == userId)) return Result.Failure("Ya has enviado tu color.");
+
+        session.ColorGuesses.Add(new ColorGuessDocument { UserId = userId, Color = color });
+        _logger.LogInformation("User {UserId} submitted a color in room {RoomCode}", userId, roomCode);
+
+        if (AllColorGuessesIn(session))
+        {
+            await _store.ClearDeadlineAsync(roomCode);
+            await ResolveColorChallengeAsync(session);
+            return Result.Success();
+        }
+
+        await _store.SaveAsync(session);
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+            await hubContext.Clients.Group(roomCode).SendAsync("ColorSubmitted", new ColorSubmittedDto(questionId, userId));
+        }
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Cierra la prueba de colores: gana el color más parecido al objetivo (empates al azar) y pasa a responder
+    /// la pregunta como quien gana el pulsador. Sin colores enviados, la pregunta se pasa sin puntos.
+    /// </summary>
+    private async Task ResolveColorChallengeAsync(GameSessionDocument session)
+    {
+        var question = session.Questions[session.CurrentQuestionIndex];
+        var target = session.ColorTarget ?? ColorMatch.RandomTarget(Random.Shared);
+
+        var guesses = session.ColorGuesses
+            .Select(g => (Guess: g, Player: session.Players.FirstOrDefault(p => p.UserId == g.UserId)))
+            .Where(x => x.Player is not null && x.Player.CanPlay())
+            .Select(x => new ColorGuessDto(x.Guess.UserId, x.Player!.Username, x.Guess.Color, ColorMatch.Similarity(target, x.Guess.Color)))
+            .OrderByDescending(g => g.Similarity)
+            .ToList();
+
+        var best = guesses.Count > 0 ? guesses[0].Similarity : (double?)null;
+        var tied = guesses.Where(g => g.Similarity == best).ToList();
+        var winner = tied.Count > 0 ? tied[Random.Shared.Next(tied.Count)] : null;
+        if (winner is not null && tied.Count > 1)
+        {
+            // El ganador del sorteo encabeza la lista para que el cliente lo muestre primero.
+            guesses.Remove(winner);
+            guesses.Insert(0, winner);
+        }
+
+        session.ColorOpen = false;
+
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+            await hubContext.Clients.Group(session.RoomCode).SendAsync("ColorChallengeResult",
+                new ColorChallengeResultDto(question.Id, target, guesses, winner?.PlayerId, winner?.Username, tied.Count > 1));
+        }
+
+        if (winner is null)
+        {
+            _logger.LogInformation("Nobody submitted a color in room {RoomCode}: skipping question", session.RoomCode);
+            await AdvanceToNextTurnAsync(session);
+            return;
+        }
+
+        _logger.LogInformation("User {UserId} won the color challenge in room {RoomCode} ({Similarity}%)",
+            winner.PlayerId, session.RoomCode, winner.Similarity);
+
+        session.BuzzWinnerId = winner.PlayerId;
+        session.TurnStartedAt = DateTime.UtcNow;
+        session.TurnGeneration++;
         await StartTurnDeadlineAsync(session);
         await BroadcastTurnStartedAsync(session);
     }
@@ -1616,8 +1760,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <summary>Segundos visibles por turno (0 = sin límite).</summary>
+    /// <summary>Segundos del turno en curso. La prueba de colores siempre dura lo mismo, en cualquier modo.</summary>
     private int GetTurnLimitSeconds(GameSessionDocument session) =>
-        session.TurnTimeLimitSeconds ?? Math.Max(0, _options.QuestionTimeLimit - 1);
+        session.ColorOpen ? ColorMatch.ChallengeSeconds : session.TurnTimeLimitSeconds ?? Math.Max(0, _options.QuestionTimeLimit - 1);
 
     /// <summary>
     /// Segundos visibles que le quedan a quien responde (los mismos que muestra su
@@ -1655,8 +1800,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     /// </summary>
     private TurnStartedDto? BuildTurnStarted(GameSessionDocument session, int timeLimit)
     {
-        // Con el pulsador abierto aún no responde nadie: CurrentPlayerId = 0 hasta que alguien pulse.
-        var answeringPlayerId = session.GetAnsweringPlayerId() ?? (session.BuzzerOpen ? 0 : null);
+        // Con el pulsador o la prueba de colores abiertos aún no responde nadie: CurrentPlayerId = 0 hasta que haya ganador.
+        var answeringPlayerId = session.GetAnsweringPlayerId() ?? (session.IsWaitingForWinner ? 0 : null);
         if (answeringPlayerId is null) return null;
         if (session.CurrentQuestionIndex >= session.Questions.Count) return null;
 
@@ -1687,9 +1832,13 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.MarkedAnswerIndex,
             session.ComodinUsedOnQuestion,
             session.CallActive,
-            question.EsPulsador,
+            question.SinTurno,
             session.BuzzerOpen,
-            session.TextHiddenForPlayerId
+            session.TextHiddenForPlayerId,
+            question.EsColores,
+            session.ColorOpen,
+            session.ColorOpen ? session.ColorTarget : null,
+            session.ColorOpen ? session.ColorGuesses.Select(g => g.UserId).ToList() : null
         );
     }
 

@@ -347,6 +347,19 @@ public class GameHub : Hub
     }
 
     /// <summary>
+    /// Pregunta de colores: envía la imitación del color objetivo (tono 0-359, saturación y brillo 0-100).
+    /// </summary>
+    public async Task SubmitColor(string roomCode, long userId, long questionId, int hue, int saturation, int brightness)
+    {
+        var result = await _gameService.SubmitColorAsync(roomCode, userId, questionId, new ColorHsb(hue, saturation, brightness));
+        if (result.IsFailure)
+        {
+            _logger.LogDebug("User {UserId} could not submit a color in room {RoomCode}: {Error}", userId, roomCode, result.Error);
+            throw new HubException(result.Error);
+        }
+    }
+
+    /// <summary>
     /// Usa un comodín (Ruleta, DobleONada, Robo, Apuesta). Método anónimo con userId como parámetro.
     /// <paramref name="predictsCorrect"/> solo aplica a la Apuesta.
     /// </summary>

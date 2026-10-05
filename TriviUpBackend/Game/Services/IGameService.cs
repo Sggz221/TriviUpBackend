@@ -73,6 +73,16 @@ public interface IGameService
     Task<Result> BuzzAsync(string roomCode, long userId, long questionId);
 
     /// <summary>
+    /// Pregunta de colores: el jugador envía su imitación del color objetivo (una sola vez). La prueba se
+    /// resuelve cuando han enviado todos los jugadores conectados o al acabarse el tiempo.
+    /// </summary>
+    /// <param name="roomCode">Código de la sala.</param>
+    /// <param name="userId">ID del jugador.</param>
+    /// <param name="questionId">Pregunta de colores en curso (descarta envíos tardíos).</param>
+    /// <param name="color">Color elegido con los sliders.</param>
+    Task<Result> SubmitColorAsync(string roomCode, long userId, long questionId, ColorHsb color);
+
+    /// <summary>
     /// Usa un comodín del jugador sobre la pregunta actual. Los de turno (Ruleta, Doble o nada)
     /// solo los puede usar quien responde; los de fuera de turno (Robo, Apuesta), el resto.
     /// </summary>
