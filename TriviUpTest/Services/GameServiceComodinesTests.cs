@@ -895,14 +895,14 @@ public class GameServiceComodinesTests
     [InlineData(0, 0)]
     [InlineData(1, 0)]
     [InlineData(2, 1)]
-    [InlineData(3, 1)]
+    [InlineData(3, 2)]
     [InlineData(4, 2)]
-    [InlineData(5, 2)]
-    public void CincuentaCincuenta_EliminatesHalfOfIncorrectRoundedDown(int incorrectas, int esperadas) =>
+    [InlineData(5, 3)]
+    public void CincuentaCincuenta_EliminatesHalfOfIncorrectRoundedUp(int incorrectas, int esperadas) =>
         Assert.Equal(esperadas, ComodinReglas.EliminadasCincuentaCincuenta(incorrectas));
 
     [Fact]
-    public async Task CincuentaCincuenta_FourAnswers_EliminatesOneIncorrectAndNeverTheCorrect()
+    public async Task CincuentaCincuenta_FourAnswers_EliminatesTwoIncorrectAndNeverTheCorrect()
     {
         for (var attempt = 0; attempt < 30; attempt++)
         {
@@ -912,15 +912,15 @@ public class GameServiceComodinesTests
             var result = await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.CincuentaCincuenta, Current(s).Id);
 
             Assert.True(result.IsSuccess);
-            var eliminated = Assert.Single(result.Value.EliminatedAnswerIndexes!);
-            Assert.NotEqual(CorrectIndex(s), eliminated);
-            Assert.Equal([eliminated], (await SessionAsync(roomCode)).EliminatedAnswerIndexes);
+            Assert.Equal(2, result.Value.EliminatedAnswerIndexes!.Count);
+            Assert.DoesNotContain(CorrectIndex(s), result.Value.EliminatedAnswerIndexes);
+            Assert.Equal(result.Value.EliminatedAnswerIndexes, (await SessionAsync(roomCode)).EliminatedAnswerIndexes);
             Assert.DoesNotContain("CincuentaCincuenta", result.Value.AvailableComodines);
         }
     }
 
     [Fact]
-    public async Task CincuentaCincuenta_FiveIncorrect_EliminatesTwo()
+    public async Task CincuentaCincuenta_FiveIncorrect_EliminatesThree()
     {
         _questions = Enumerable.Range(1, 3).Select(i => new Pregunta
         {
@@ -935,7 +935,7 @@ public class GameServiceComodinesTests
 
         var result = await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.CincuentaCincuenta, Current(s).Id);
 
-        Assert.Equal(2, result.Value.EliminatedAnswerIndexes!.Count);
+        Assert.Equal(3, result.Value.EliminatedAnswerIndexes!.Count);
         Assert.DoesNotContain(CorrectIndex(s), result.Value.EliminatedAnswerIndexes);
     }
 

@@ -101,8 +101,12 @@ public static class ComodinReglas
     /// </summary>
     public const int DuracionRuletaMs = 17000;
 
-    /// <summary>Respuestas incorrectas que elimina el 50/50 de las que quedan: la mitad, redondeando a la baja.</summary>
-    public static int EliminadasCincuentaCincuenta(int incorrectasRestantes) => incorrectasRestantes / 2;
+    /// <summary>
+    /// Respuestas incorrectas que elimina el 50/50 de las que quedan: la mitad, redondeando al alza, de modo que
+    /// quede en pantalla la mitad de las respuestas (redondeada al alza) y siempre al menos una incorrecta.
+    /// </summary>
+    public static int EliminadasCincuentaCincuenta(int incorrectasRestantes) =>
+        Math.Max(0, Math.Min((incorrectasRestantes + 1) / 2, incorrectasRestantes - 1));
 
     /// <summary>Tira la ruleta: hueco en el que cae y su valor (respuestas incorrectas a eliminar, 0-3).</summary>
     public static (int Hueco, int Valor) TirarRuleta(Random random)
