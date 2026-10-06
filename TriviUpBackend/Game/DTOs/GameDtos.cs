@@ -186,7 +186,9 @@ public record TurnStartedDto(
     bool OcarinaOpen = false,
     List<OcarinaNoteDto>? OcarinaMelody = null,
     /// <summary>Lo que le queda a la melodía por sonar (0 = ya se puede tocar).</summary>
-    int OcarinaListenRemainingMs = 0
+    int OcarinaListenRemainingMs = 0,
+    /// <summary>Lo que falta para poder pulsar (banner + cuenta atrás 3-2-1; 0 = ya se puede).</summary>
+    int BuzzerLockedRemainingMs = 0
 );
 
 /// <summary>Nota de la melodía de la ocarina: botón 0-4 y figura (Semicorchea, Corchea, Negra, Blanca).</summary>

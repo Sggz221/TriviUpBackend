@@ -74,6 +74,21 @@ public class GameServiceDynamicRoundTests
         ]
     };
 
+    /// <summary>Pulsa como si ya hubiera terminado la cuenta atrás (la mayoría de tests no van de eso).</summary>
+    private async Task<CSharpFunctionalExtensions.Result> BuzzAsync(string roomCode, long userId, long questionId)
+    {
+        await SkipBuzzerCountdownAsync(roomCode);
+        return await _service.BuzzAsync(roomCode, userId, questionId);
+    }
+
+    private async Task SkipBuzzerCountdownAsync(string roomCode)
+    {
+        var session = await _store.GetAsync(roomCode);
+        if (session?.BuzzerOpensAtUnixMs is null) return;
+        session.BuzzerOpensAtUnixMs = DateTimeOffset.UtcNow.AddSeconds(-1).ToUnixTimeMilliseconds();
+        await _store.SaveAsync(session);
+    }
+
     private async Task<string> StartRoomAsync()
     {
         var roomCode = await _service.CreateGameAsync(1L, 100L, "owner", "conn-owner");
@@ -103,8 +118,8 @@ public class GameServiceDynamicRoundTests
         var roomCode = await StartRoomAsync();
         var questionId = (await _store.GetAsync(roomCode))!.Questions[0].Id;
 
-        var first = await _service.BuzzAsync(roomCode, 300L, questionId);
-        var second = await _service.BuzzAsync(roomCode, 200L, questionId);
+        var first = await BuzzAsync(roomCode, 300L, questionId);
+        var second = await BuzzAsync(roomCode, 200L, questionId);
 
         Assert.True(first.IsSuccess);
         Assert.True(second.IsFailure);
@@ -122,8 +137,8 @@ public class GameServiceDynamicRoundTests
         var questionId = (await _store.GetAsync(roomCode))!.Questions[0].Id;
 
         var results = await Task.WhenAll(
-            _service.BuzzAsync(roomCode, 200L, questionId),
-            _service.BuzzAsync(roomCode, 300L, questionId));
+            BuzzAsync(roomCode, 200L, questionId),
+            BuzzAsync(roomCode, 300L, questionId));
 
         Assert.Equal(1, results.Count(r => r.IsSuccess));
     }
@@ -134,8 +149,8 @@ public class GameServiceDynamicRoundTests
         var roomCode = await StartRoomAsync();
         var questionId = (await _store.GetAsync(roomCode))!.Questions[0].Id;
 
-        Assert.True((await _service.BuzzAsync(roomCode, 100L, questionId)).IsFailure);
-        Assert.True((await _service.BuzzAsync(roomCode, 200L, questionId + 999)).IsFailure);
+        Assert.True((await BuzzAsync(roomCode, 100L, questionId)).IsFailure);
+        Assert.True((await BuzzAsync(roomCode, 200L, questionId + 999)).IsFailure);
         Assert.True((await _store.GetAsync(roomCode))!.BuzzerOpen);
     }
 
@@ -154,7 +169,7 @@ public class GameServiceDynamicRoundTests
     {
         var roomCode = await StartRoomAsync();
         var questionId = (await _store.GetAsync(roomCode))!.Questions[0].Id;
-        await _service.BuzzAsync(roomCode, 300L, questionId);
+        await BuzzAsync(roomCode, 300L, questionId);
 
         Assert.Null(await _service.SubmitAnswerAsync(roomCode, 200L, questionId, 0));
         Assert.NotNull(await _service.SubmitAnswerAsync(roomCode, 300L, questionId, 0));
@@ -171,7 +186,7 @@ public class GameServiceDynamicRoundTests
     {
         var roomCode = await StartRoomAsync();
         var questionId = (await _store.GetAsync(roomCode))!.Questions[0].Id;
-        await _service.BuzzAsync(roomCode, 200L, questionId);
+        await BuzzAsync(roomCode, 200L, questionId);
 
         var result = await _service.UseComodinAsync(roomCode, 200L, ComodinTipo.Ruleta, questionId);
 
@@ -229,6 +244,47 @@ public class GameServiceDynamicRoundTests
 
         Assert.False(session.BuzzerOpen);
         Assert.NotNull(session.GetAnsweringPlayerId());
-        Assert.True((await _service.BuzzAsync(roomCode, 200L, questionId)).IsFailure);
+        Assert.True((await BuzzAsync(roomCode, 200L, questionId)).IsFailure);
+    }
+
+    // ========== Cuenta atrás del pulsador ==========
+
+    [Fact]
+    public async Task Buzz_DuringCountdown_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+        var session = (await _store.GetAsync(roomCode))!;
+        var questionId = session.Questions[session.CurrentQuestionIndex].Id;
+
+        var result = await _service.BuzzAsync(roomCode, 200L, questionId);
+
+        Assert.True(result.IsFailure);
+        Assert.True((await _store.GetAsync(roomCode))!.BuzzerOpen);
+    }
+
+    [Fact]
+    public async Task BuzzerQuestion_LocksForBannerAndCountdown_AndDeadlineIncludesIt()
+    {
+        var before = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var roomCode = await StartRoomAsync();
+        var session = (await _store.GetAsync(roomCode))!;
+
+        var lockMs = session.BuzzerOpensAtUnixMs!.Value - before;
+        Assert.InRange(lockMs, GameService.BuzzerBannerMs + GameService.BuzzerCountdownMs - 50,
+            GameService.BuzzerBannerMs + GameService.BuzzerCountdownMs + GameService.PhaseBannerMs + 500);
+        // El tiempo para pulsar empieza a contar al terminar la cuenta atrás
+        Assert.True(session.TurnDeadlineUnixMs >= session.BuzzerOpensAtUnixMs + 20_000);
+    }
+
+    [Fact]
+    public async Task Buzz_AfterCountdown_Succeeds()
+    {
+        var roomCode = await StartRoomAsync();
+        var session = (await _store.GetAsync(roomCode))!;
+        await SkipBuzzerCountdownAsync(roomCode);
+
+        var result = await _service.BuzzAsync(roomCode, 200L, session.Questions[session.CurrentQuestionIndex].Id);
+
+        Assert.True(result.IsSuccess);
     }
 }

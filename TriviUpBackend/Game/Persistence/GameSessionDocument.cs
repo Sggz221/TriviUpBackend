@@ -101,6 +101,12 @@ public sealed class GameSessionDocument
     /// <summary>Hasta cuándo suena la melodía: antes no se aceptan intentos.</summary>
     public long? OcarinaListenUntilUnixMs { get; set; }
 
+    /// <summary>Cuándo se puede empezar a pulsar (tras el banner y la cuenta atrás); antes se rechaza.</summary>
+    public long? BuzzerOpensAtUnixMs { get; set; }
+
+    /// <summary>Lo que le quedaba a la cuenta atrás del pulsador al pausar (se reanuda desde ahí).</summary>
+    public int? PausedBuzzerLockMs { get; set; }
+
     /// <summary>Pregunta sin turno a la espera de ganador (pulsador, colores u ocarina abiertos).</summary>
     public bool IsWaitingForWinner => BuzzerOpen || ColorOpen || OcarinaOpen;
 
@@ -136,6 +142,8 @@ public sealed class GameSessionDocument
         OcarinaOpen = false;
         OcarinaMelody = null;
         OcarinaListenUntilUnixMs = null;
+        BuzzerOpensAtUnixMs = null;
+        PausedBuzzerLockMs = null;
         MarkedAnswerIndex = null;
         AwaitingNextQuestion = false;
         LastTurnResult = null;

@@ -49,7 +49,7 @@ public class OcarinaMelodyTests
     }
 
     [Fact]
-    public void PlaybackMs_IsLeadInPlusFigureDurations()
+    public void PlaybackMs_IsLeadInPlusMelodyTwicePlusGap()
     {
         var melody = new List<OcarinaNote>
         {
@@ -57,6 +57,6 @@ public class OcarinaMelodyTests
         };
 
         var q = OcarinaMelody.QuarterMs;
-        Assert.Equal(OcarinaMelody.LeadInMs + q / 4 + q / 2 + q + q * 2, OcarinaMelody.PlaybackMs(melody));
+        Assert.Equal(OcarinaMelody.LeadInMs + 2 * (q / 4 + q / 2 + q + q * 2) + OcarinaMelody.RepeatGapMs, OcarinaMelody.PlaybackMs(melody));
     }
 }

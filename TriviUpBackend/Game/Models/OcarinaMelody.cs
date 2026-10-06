@@ -30,6 +30,9 @@ public static class OcarinaMelody
     /// <summary>Duración de una negra: tempo lento (72 bpm) para que se pueda memorizar.</summary>
     public const int QuarterMs = 833;
 
+    /// <summary>Silencio entre las dos veces que suena la melodía.</summary>
+    public const int RepeatGapMs = 1200;
+
     /// <summary>Melodía al azar: nunca tres notas iguales seguidas, y la última nota es larga (blanca).</summary>
     public static List<OcarinaNote> Random(Random random)
     {
@@ -65,8 +68,12 @@ public static class OcarinaMelody
         _ => QuarterMs * 2
     };
 
-    /// <summary>Lo que tarda en sonar la melodía completa, desde que empieza la pregunta.</summary>
-    public static int PlaybackMs(IEnumerable<OcarinaNote> melody) => LeadInMs + melody.Sum(n => DurationMs(n.Figure));
+    /// <summary>
+    /// Lo que tarda en sonar la melodía desde que empieza la pregunta: suena dos veces (con un silencio entre
+    /// ambas) antes de que se pueda tocar. El frontend la reproduce igual (ocarina-audio.ts).
+    /// </summary>
+    public static int PlaybackMs(IEnumerable<OcarinaNote> melody) =>
+        LeadInMs + 2 * melody.Sum(n => DurationMs(n.Figure)) + RepeatGapMs;
 
     /// <summary>Acierto si las notas coinciden en orden (el ritmo no cuenta).</summary>
     public static bool Matches(IReadOnlyList<OcarinaNote> melody, IReadOnlyList<int> attempt) =>

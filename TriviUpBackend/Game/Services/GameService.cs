@@ -754,6 +754,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         // Dentro del lock el primero que llega gana; el resto se encuentra el pulsador cerrado.
         if (!session.BuzzerOpen) return Result.Failure("Otro equipo ha pulsado antes.");
+        if (BuzzerLockedRemainingMs(session) > 0) return Result.Failure("Aún no se puede pulsar.");
 
         session.BuzzerOpen = false;
         session.BuzzWinnerId = userId;
@@ -1149,6 +1150,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.PausedTimeRemaining = Math.Max(0, GetTurnLimitSeconds(session) + 1 - (int)elapsed);
         }
 
+        // La cuenta atrás del pulsador se congela con la pausa
+        session.PausedBuzzerLockMs = BuzzerLockedRemainingMs(session) is > 0 and var lockMs ? lockMs : null;
+
         session.State = GameState.Paused;
         session.TurnDeadlineUnixMs = null;
         session.TurnGeneration++;
@@ -1188,6 +1192,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         var hasLimit = GetTurnLimitSeconds(session) > 0;
         var timeToResume = hasLimit ? (session.PausedTimeRemaining ?? GetTurnLimitSeconds(session) + 1) : 0;
         session.PausedTimeRemaining = null;
+        if (session.PausedBuzzerLockMs is { } lockMs)
+        {
+            session.BuzzerOpensAtUnixMs = DateTimeOffset.UtcNow.AddMilliseconds(lockMs).ToUnixTimeMilliseconds();
+            session.PausedBuzzerLockMs = null;
+        }
         session.State = GameState.Playing;
         session.TurnStartedAt = DateTime.UtcNow;
         session.TurnGeneration++;
@@ -1459,6 +1468,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     {
         var question = session.CurrentQuestionIndex < session.Questions.Count ? session.Questions[session.CurrentQuestionIndex] : null;
         session.BuzzerOpen = question?.EsPulsador == true;
+        session.BuzzerOpensAtUnixMs = session.BuzzerOpen
+            ? DateTimeOffset.UtcNow.AddMilliseconds(BuzzerLockMs(session)).ToUnixTimeMilliseconds()
+            : null;
         session.ColorOpen = question?.EsColores == true;
         session.ColorTarget = session.ColorOpen ? ColorMatch.RandomTarget(Random.Shared) : null;
         session.ColorGuesses = new();
@@ -1468,6 +1480,31 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             ? DateTimeOffset.UtcNow.AddMilliseconds(OcarinaMelody.PlaybackMs(session.OcarinaMelody!)).ToUnixTimeMilliseconds()
             : null;
     }
+
+    /// <summary>Cuenta atrás 3-2-1 antes de abrir el pulsador (los clientes la muestran con sonido).</summary>
+    public const int BuzzerCountdownMs = 3000;
+    /// <summary>Lo que dura el banner "¡Pulsador!" en los clientes, antes de la cuenta atrás.</summary>
+    public const int BuzzerBannerMs = 2000;
+    /// <summary>Lo que dura el banner de inicio de fase, que los clientes muestran antes que el del pulsador.</summary>
+    public const int PhaseBannerMs = 2800;
+
+    /// <summary>
+    /// Espera antes de poder pulsar: banner del pulsador + cuenta atrás, y además el banner de fase si la pregunta
+    /// abre una fase (los clientes lo muestran primero). Así nadie puede pulsar antes de que todos lo vean.
+    /// </summary>
+    private static int BuzzerLockMs(GameSessionDocument session)
+    {
+        var index = session.CurrentQuestionIndex;
+        var opensPhase = session.Questions.Select(q => q.FaseNumero).Distinct().Count() > 1
+            && (index == 0 || session.Questions[index - 1].FaseNumero != session.Questions[index].FaseNumero);
+        return BuzzerBannerMs + BuzzerCountdownMs + (opensPhase ? PhaseBannerMs : 0);
+    }
+
+    /// <summary>Lo que falta para poder pulsar (0 si ya se puede o no hay pulsador).</summary>
+    private static int BuzzerLockedRemainingMs(GameSessionDocument session) =>
+        session.BuzzerOpen && session.BuzzerOpensAtUnixMs is { } opensAt
+            ? (int)Math.Max(0, opensAt - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+            : 0;
 
     /// <summary>Lo que le queda a la melodía de la ocarina por sonar (0 si ya ha terminado o no hay).</summary>
     private static int OcarinaListenRemainingMs(GameSessionDocument session) =>
@@ -1832,8 +1869,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return;
         }
 
-        // +1 s de gracia visual
-        session.TurnDeadlineUnixMs = DateTimeOffset.UtcNow.AddSeconds(limit + 1).ToUnixTimeMilliseconds();
+        // +1 s de gracia visual; el tiempo del pulsador empieza a contar al abrirse (tras la cuenta atrás)
+        session.TurnDeadlineUnixMs = DateTimeOffset.UtcNow.AddSeconds(limit + 1)
+            .AddMilliseconds(BuzzerLockedRemainingMs(session)).ToUnixTimeMilliseconds();
         await _store.SaveAsync(session);
         await _store.ScheduleDeadlineAsync(session.RoomCode, session.TurnDeadlineUnixMs.Value, session.TurnGeneration);
     }
@@ -1886,7 +1924,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             question.EsOcarina,
             session.OcarinaOpen,
             session.OcarinaOpen ? session.OcarinaMelody?.Select(n => new OcarinaNoteDto(n.Pitch, n.Figure.ToString())).ToList() : null,
-            session.OcarinaOpen ? OcarinaListenRemainingMs(session) : 0
+            session.OcarinaOpen ? OcarinaListenRemainingMs(session) : 0,
+            BuzzerLockedRemainingMs(session)
         );
     }
 
