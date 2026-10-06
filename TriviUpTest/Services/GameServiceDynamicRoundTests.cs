@@ -84,7 +84,7 @@ public class GameServiceDynamicRoundTests
     private async Task SkipBuzzerCountdownAsync(string roomCode)
     {
         var session = await _store.GetAsync(roomCode);
-        if (session?.BuzzerOpensAtUnixMs is null) return;
+        if (session is null || !session.BuzzerOpen) return;
         session.BuzzerOpensAtUnixMs = DateTimeOffset.UtcNow.AddSeconds(-1).ToUnixTimeMilliseconds();
         await _store.SaveAsync(session);
     }
@@ -249,41 +249,75 @@ public class GameServiceDynamicRoundTests
 
     // ========== Cuenta atrás del pulsador ==========
 
-    [Fact]
-    public async Task Buzz_DuringCountdown_Fails()
+    private async Task<long> CurrentQuestionIdAsync(string roomCode)
     {
-        var roomCode = await StartRoomAsync();
         var session = (await _store.GetAsync(roomCode))!;
-        var questionId = session.Questions[session.CurrentQuestionIndex].Id;
-
-        var result = await _service.BuzzAsync(roomCode, 200L, questionId);
-
-        Assert.True(result.IsFailure);
-        Assert.True((await _store.GetAsync(roomCode))!.BuzzerOpen);
+        return session.Questions[session.CurrentQuestionIndex].Id;
     }
 
     [Fact]
-    public async Task BuzzerQuestion_LocksForBannerAndCountdown_AndDeadlineIncludesIt()
+    public async Task BuzzerQuestion_WaitsForHost_NoBuzzAndNoDeadline()
     {
-        var before = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var roomCode = await StartRoomAsync();
         var session = (await _store.GetAsync(roomCode))!;
 
-        var lockMs = session.BuzzerOpensAtUnixMs!.Value - before;
-        Assert.InRange(lockMs, GameService.BuzzerBannerMs + GameService.BuzzerCountdownMs - 50,
-            GameService.BuzzerBannerMs + GameService.BuzzerCountdownMs + GameService.PhaseBannerMs + 500);
-        // El tiempo para pulsar empieza a contar al terminar la cuenta atrás
+        var result = await _service.BuzzAsync(roomCode, 200L, await CurrentQuestionIdAsync(roomCode));
+
+        Assert.True(result.IsFailure);
+        Assert.True(session.BuzzerOpen);
+        Assert.Null(session.BuzzerOpensAtUnixMs);
+        Assert.Null(session.TurnDeadlineUnixMs);
+    }
+
+    [Fact]
+    public async Task FakeCountdown_KeepsBuzzerClosed()
+    {
+        var roomCode = await StartRoomAsync();
+        var questionId = await CurrentQuestionIdAsync(roomCode);
+
+        Assert.True((await _service.StartBuzzerCountdownAsync(roomCode, 100L, questionId, fake: true)).IsSuccess);
+
+        var session = (await _store.GetAsync(roomCode))!;
+        Assert.Null(session.BuzzerOpensAtUnixMs);
+        Assert.Null(session.TurnDeadlineUnixMs);
+        Assert.True((await _service.BuzzAsync(roomCode, 200L, questionId)).IsFailure);
+        // Después de la broma se puede lanzar la de verdad
+        Assert.True((await _service.StartBuzzerCountdownAsync(roomCode, 100L, questionId, fake: false)).IsSuccess);
+    }
+
+    [Fact]
+    public async Task RealCountdown_OpensAfterCountdown_AndDeadlineStartsThen()
+    {
+        var roomCode = await StartRoomAsync();
+        var questionId = await CurrentQuestionIdAsync(roomCode);
+        var before = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        Assert.True((await _service.StartBuzzerCountdownAsync(roomCode, 100L, questionId, fake: false)).IsSuccess);
+
+        var session = (await _store.GetAsync(roomCode))!;
+        Assert.InRange(session.BuzzerOpensAtUnixMs!.Value - before, GameService.BuzzerCountdownMs - 50, GameService.BuzzerCountdownMs + 500);
         Assert.True(session.TurnDeadlineUnixMs >= session.BuzzerOpensAtUnixMs + 20_000);
+        Assert.True((await _service.BuzzAsync(roomCode, 200L, questionId)).IsFailure);
+        Assert.True((await _service.StartBuzzerCountdownAsync(roomCode, 100L, questionId, fake: false)).IsFailure);
+    }
+
+    [Fact]
+    public async Task StartBuzzerCountdown_NotOwner_Fails()
+    {
+        var roomCode = await StartRoomAsync();
+
+        var result = await _service.StartBuzzerCountdownAsync(roomCode, 200L, await CurrentQuestionIdAsync(roomCode), fake: false);
+
+        Assert.True(result.IsFailure);
     }
 
     [Fact]
     public async Task Buzz_AfterCountdown_Succeeds()
     {
         var roomCode = await StartRoomAsync();
-        var session = (await _store.GetAsync(roomCode))!;
         await SkipBuzzerCountdownAsync(roomCode);
 
-        var result = await _service.BuzzAsync(roomCode, 200L, session.Questions[session.CurrentQuestionIndex].Id);
+        var result = await _service.BuzzAsync(roomCode, 200L, await CurrentQuestionIdAsync(roomCode));
 
         Assert.True(result.IsSuccess);
     }

@@ -101,6 +101,12 @@ public interface IGameService
     Task<Result<ComodinUsedDto>> UseComodinAsync(string roomCode, long userId, ComodinTipo tipo, long questionId, bool? predictsCorrect = null);
 
     /// <summary>
+    /// Pulsador: el anfitrión empieza la cuenta atrás. De verdad, el pulsador se abre al acabar; de broma
+    /// (<paramref name="fake"/>), todos ven la cuenta atrás pero sigue cerrado hasta que lance la de verdad.
+    /// </summary>
+    Task<Result> StartBuzzerCountdownAsync(string roomCode, long ownerId, long questionId, bool fake);
+
+    /// <summary>
     /// Modo presencial: el anfitrión quita el cartel de la Llamada en curso (lo ve toda la sala,
     /// pero solo él puede cerrarlo).
     /// </summary>

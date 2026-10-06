@@ -397,6 +397,21 @@ public class GameHub : Hub
     }
 
     /// <summary>
+    /// Pulsador: el anfitrión empieza la cuenta atrás (de verdad o de broma).
+    /// </summary>
+    public async Task StartBuzzerCountdown(string roomCode, long questionId, bool fake)
+    {
+        var userId = GetAuthenticatedUserId();
+
+        var result = await _gameService.StartBuzzerCountdownAsync(roomCode, userId, questionId, fake);
+        if (result.IsFailure)
+        {
+            _logger.LogWarning("Failed to start buzzer countdown in room {RoomCode} by {UserId}: {Error}", roomCode, userId, result.Error);
+            throw new HubException(result.Error);
+        }
+    }
+
+    /// <summary>
     /// Modo presencial: el anfitrión quita el cartel de la Llamada.
     /// </summary>
     public async Task DismissCall(string roomCode, long questionId)

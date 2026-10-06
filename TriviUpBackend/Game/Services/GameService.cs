@@ -501,6 +501,38 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <inheritdoc />
+    public async Task<Result> StartBuzzerCountdownAsync(string roomCode, long ownerId, long questionId, bool fake)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        if (session is null) return Result.Failure("Room not found.");
+        if (session.OwnerId != ownerId) return Result.Failure("Solo el anfitrión puede empezar la cuenta atrás.");
+        if (session.State != GameState.Playing) return Result.Failure("La partida no está en juego.");
+        if (session.CurrentQuestionIndex >= session.Questions.Count ||
+            session.Questions[session.CurrentQuestionIndex].Id != questionId)
+        {
+            return Result.Failure("La pregunta ya ha cambiado.");
+        }
+        if (!session.BuzzerOpen) return Result.Failure("No hay ningún pulsador esperando.");
+        if (!BuzzerWaitingForHost(session)) return Result.Failure("La cuenta atrás ya ha empezado.");
+
+        if (!fake)
+        {
+            // De verdad: el pulsador se abre al terminar la cuenta atrás y desde ahí corre el tiempo para pulsar
+            session.BuzzerOpensAtUnixMs = DateTimeOffset.UtcNow.AddMilliseconds(BuzzerCountdownMs).ToUnixTimeMilliseconds();
+            await StartTurnDeadlineAsync(session);
+        }
+
+        using var scope = _scopeFactory.CreateScope();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+        await hubContext.Clients.Group(roomCode).SendAsync("BuzzerCountdown",
+            new BuzzerCountdownDto(questionId, fake, BuzzerCountdownMs, GetTurnLimitSeconds(session)));
+        return Result.Success();
+    }
+
+    /// <inheritdoc />
     public async Task<Result> DismissCallAsync(string roomCode, long ownerId, long questionId)
     {
         await using var roomLock = await AcquireRoomLockAsync(roomCode);
@@ -754,6 +786,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
 
         // Dentro del lock el primero que llega gana; el resto se encuentra el pulsador cerrado.
         if (!session.BuzzerOpen) return Result.Failure("Otro equipo ha pulsado antes.");
+        if (BuzzerWaitingForHost(session)) return Result.Failure("Espera a que el anfitrión empiece la cuenta atrás.");
         if (BuzzerLockedRemainingMs(session) > 0) return Result.Failure("Aún no se puede pulsar.");
 
         session.BuzzerOpen = false;
@@ -1144,7 +1177,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             var remainingMs = session.TurnDeadlineUnixMs.Value - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             session.PausedTimeRemaining = Math.Max(0, (int)Math.Ceiling(remainingMs / 1000.0));
         }
-        else if (session.TurnStartedAt.HasValue && GetTurnLimitSeconds(session) > 0)
+        else if (session.TurnStartedAt.HasValue && GetTurnLimitSeconds(session) > 0 && !BuzzerWaitingForHost(session))
         {
             var elapsed = (DateTime.UtcNow - session.TurnStartedAt.Value).TotalSeconds;
             session.PausedTimeRemaining = Math.Max(0, GetTurnLimitSeconds(session) + 1 - (int)elapsed);
@@ -1189,7 +1222,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return Result.Failure("Game can only be resumed when paused.");
         }
 
-        var hasLimit = GetTurnLimitSeconds(session) > 0;
+        var hasLimit = GetTurnLimitSeconds(session) > 0 && !BuzzerWaitingForHost(session);
         var timeToResume = hasLimit ? (session.PausedTimeRemaining ?? GetTurnLimitSeconds(session) + 1) : 0;
         session.PausedTimeRemaining = null;
         if (session.PausedBuzzerLockMs is { } lockMs)
@@ -1467,10 +1500,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     private static void OpenQuestionWithoutTurn(GameSessionDocument session)
     {
         var question = session.CurrentQuestionIndex < session.Questions.Count ? session.Questions[session.CurrentQuestionIndex] : null;
+        // El pulsador queda cerrado hasta que el anfitrión lance la cuenta atrás (StartBuzzerCountdownAsync)
         session.BuzzerOpen = question?.EsPulsador == true;
-        session.BuzzerOpensAtUnixMs = session.BuzzerOpen
-            ? DateTimeOffset.UtcNow.AddMilliseconds(BuzzerLockMs(session)).ToUnixTimeMilliseconds()
-            : null;
+        session.BuzzerOpensAtUnixMs = null;
         session.ColorOpen = question?.EsColores == true;
         session.ColorTarget = session.ColorOpen ? ColorMatch.RandomTarget(Random.Shared) : null;
         session.ColorGuesses = new();
@@ -1481,24 +1513,12 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             : null;
     }
 
-    /// <summary>Cuenta atrás 3-2-1 antes de abrir el pulsador (los clientes la muestran con sonido).</summary>
-    public const int BuzzerCountdownMs = 3000;
-    /// <summary>Lo que dura el banner "¡Pulsador!" en los clientes, antes de la cuenta atrás.</summary>
-    public const int BuzzerBannerMs = 2000;
-    /// <summary>Lo que dura el banner de inicio de fase, que los clientes muestran antes que el del pulsador.</summary>
-    public const int PhaseBannerMs = 2800;
+    /// <summary>Cuenta atrás (5-4-3-2-1) que lanza el anfitrión antes de abrir el pulsador.</summary>
+    public const int BuzzerCountdownMs = 5000;
 
-    /// <summary>
-    /// Espera antes de poder pulsar: banner del pulsador + cuenta atrás, y además el banner de fase si la pregunta
-    /// abre una fase (los clientes lo muestran primero). Así nadie puede pulsar antes de que todos lo vean.
-    /// </summary>
-    private static int BuzzerLockMs(GameSessionDocument session)
-    {
-        var index = session.CurrentQuestionIndex;
-        var opensPhase = session.Questions.Select(q => q.FaseNumero).Distinct().Count() > 1
-            && (index == 0 || session.Questions[index - 1].FaseNumero != session.Questions[index].FaseNumero);
-        return BuzzerBannerMs + BuzzerCountdownMs + (opensPhase ? PhaseBannerMs : 0);
-    }
+    /// <summary>Pulsador abierto pero esperando a que el anfitrión lance la cuenta atrás de verdad.</summary>
+    private static bool BuzzerWaitingForHost(GameSessionDocument session) =>
+        session.BuzzerOpen && session.BuzzerOpensAtUnixMs is null;
 
     /// <summary>Lo que falta para poder pulsar (0 si ya se puede o no hay pulsador).</summary>
     private static int BuzzerLockedRemainingMs(GameSessionDocument session) =>
@@ -1862,7 +1882,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     private async Task StartTurnDeadlineAsync(GameSessionDocument session)
     {
         var limit = GetTurnLimitSeconds(session);
-        if (limit <= 0)
+        // Sin cuenta atrás lanzada no corre el tiempo: el plazo empieza con la cuenta atrás de verdad
+        if (limit <= 0 || BuzzerWaitingForHost(session))
         {
             session.TurnDeadlineUnixMs = null;
             await _store.SaveAsync(session);
@@ -1925,7 +1946,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.OcarinaOpen,
             session.OcarinaOpen ? session.OcarinaMelody?.Select(n => new OcarinaNoteDto(n.Pitch, n.Figure.ToString())).ToList() : null,
             session.OcarinaOpen ? OcarinaListenRemainingMs(session) : 0,
-            BuzzerLockedRemainingMs(session)
+            BuzzerLockedRemainingMs(session),
+            BuzzerWaitingForHost(session)
         );
     }
 

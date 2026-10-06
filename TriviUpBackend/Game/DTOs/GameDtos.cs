@@ -187,8 +187,10 @@ public record TurnStartedDto(
     List<OcarinaNoteDto>? OcarinaMelody = null,
     /// <summary>Lo que le queda a la melodía por sonar (0 = ya se puede tocar).</summary>
     int OcarinaListenRemainingMs = 0,
-    /// <summary>Lo que falta para poder pulsar (banner + cuenta atrás 3-2-1; 0 = ya se puede).</summary>
-    int BuzzerLockedRemainingMs = 0
+    /// <summary>Lo que falta para poder pulsar en una cuenta atrás ya empezada (0 = ya se puede o no ha empezado).</summary>
+    int BuzzerLockedRemainingMs = 0,
+    /// <summary>Pulsador a la espera de que el anfitrión empiece la cuenta atrás de verdad (nadie puede pulsar).</summary>
+    bool BuzzerWaitingForHost = false
 );
 
 /// <summary>Nota de la melodía de la ocarina: botón 0-4 y figura (Semicorchea, Corchea, Negra, Blanca).</summary>
@@ -245,6 +247,13 @@ public record BuzzerWonDto(
     long PlayerId,
     string Username
 );
+
+/// <summary>
+/// Pulsador: el anfitrión empieza la cuenta atrás. Si es de broma (<paramref name="Fake"/>), acaba en "¡Ah, no!"
+/// y el pulsador sigue cerrado; si es de verdad, se abre al terminar <paramref name="CountdownMs"/>.
+/// <paramref name="TimeLimit"/> son los segundos para pulsar una vez abierto.
+/// </summary>
+public record BuzzerCountdownDto(long QuestionId, bool Fake, int CountdownMs, int TimeLimit);
 
 /// <summary>
 /// Modo presencial: el anfitrión quitó el cartel de la Llamada.
