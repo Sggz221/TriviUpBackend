@@ -652,6 +652,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         GameSessionDocument session, PlayerDocument player, QuestionSnapshot question,
         bool isCorrect, int remainingSeconds, bool timedOut)
     {
+        if (session.Shootout is { Started: true, Finished: false })
+        {
+            return await ResolvePenaltyKickAsync(session, player, question, isCorrect, timedOut);
+        }
+
         var isSteal = session.StealActive && session.StolenById == player.UserId;
         var doubleOrNothing = session.DoubleOrNothingPlayers.Contains(player.UserId);
         // La respuesta cierra la llamada aunque el anfitrión no haya quitado el cartel.
@@ -864,6 +869,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         if (session.AwaitingNextQuestion)
         {
             return Result.Failure<ComodinUsedDto>("La respuesta ya está confirmada.");
+        }
+
+        if (session.Shootout is { Started: true })
+        {
+            return Result.Failure<ComodinUsedDto>("No se pueden usar comodines en los penaltis.");
         }
 
         var player = session.Players.FirstOrDefault(p => p.UserId == userId);
@@ -1449,10 +1459,16 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     private async Task AdvanceToNextTurnAsync(GameSessionDocument session)
     {
         session.ResetQuestionState();
+        if (session.Shootout is { Started: true })
+        {
+            await NextPenaltyKickAsync(session);
+            return;
+        }
+
         session.CurrentQuestionIndex++;
         if (session.CurrentQuestionIndex >= session.Questions.Count)
         {
-            await EndGameAsync(session);
+            await FinishOrTiebreakAsync(session);
             return;
         }
 
@@ -1708,6 +1724,14 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
 
         session.State = GameState.Playing;
+        if (session.Shootout is { Started: false })
+        {
+            // Intermedio de la ronda extra: empieza la tanda de penaltis
+            session.Shootout.Started = true;
+            await NextPenaltyKickAsync(session);
+            _logger.LogInformation("Room {RoomCode} started the penalty shootout", roomCode);
+            return Result.Success();
+        }
         await StartNextTurnAsync(session);
 
         _logger.LogInformation("Room {RoomCode} continued to phase {Phase} by owner {UserId}",
@@ -1717,10 +1741,21 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     private static int GetTotalPhases(GameSessionDocument session) =>
-        session.Questions.Count == 0 ? 1 : session.Questions.Select(q => q.FaseNumero).Distinct().Count();
+        session.Questions.Count(q => !q.EsPenalti) == 0
+            ? 1
+            : session.Questions.Where(q => !q.EsPenalti).Select(q => q.FaseNumero).Distinct().Count();
 
     private static PhaseCompletedDto BuildPhaseCompleted(GameSessionDocument session)
     {
+        if (session.Shootout is { Started: false } shootout)
+        {
+            var last = session.Questions.Last(q => !q.EsPenalti);
+            return new PhaseCompletedDto(
+                session.RoomCode, last.FaseNumero, last.FaseNombre, "Penaltis", GetTotalPhases(session),
+                session.Players.Select(p => ToPlayerDto(p, session)).ToList(), last.FaseColor,
+                shootout.FaseNumero, PenaltyFaseColor, IsExtraRound: true, TiedPlayerIds: shootout.PlayerIds);
+        }
+
         var completed = session.Questions[Math.Max(session.CurrentQuestionIndex - 1, 0)];
         var next = session.Questions[Math.Min(session.CurrentQuestionIndex, session.Questions.Count - 1)];
         var players = session.Players.Select(p => ToPlayerDto(p, session)).ToList();
@@ -1744,6 +1779,197 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         await hubContext.Clients.Group(session.RoomCode).SendAsync("PhaseCompleted", BuildPhaseCompleted(session));
     }
 
+    /// <summary>Color de la fase de penaltis (verde césped).</summary>
+    private const string PenaltyFaseColor = "#16a34a";
+
+    /// <summary>Jugadores que entran en la clasificación final (sin anfitrión ni espectadores).</summary>
+    private static List<PlayerDocument> RankedPlayers(GameSessionDocument session) =>
+        session.Players.Where(p => p.UserId != session.OwnerId && !p.IsSpectator).ToList();
+
+    /// <summary>
+    /// Se acabaron las preguntas. Si hay empate por el 1º y el banco del creador tiene preguntas sin jugar
+    /// suficientes (5 por empatado), se abre la ronda extra de penaltis: intermedio hasta que el anfitrión la
+    /// empiece. Si no, termina la partida (los empates del podio se sortean en <see cref="FinalRanking"/>).
+    /// </summary>
+    private async Task FinishOrTiebreakAsync(GameSessionDocument session)
+    {
+        var tied = FinalRanking.TiedForFirst(RankedPlayers(session));
+        if (tied.Count < 2)
+        {
+            await EndGameAsync(session);
+            return;
+        }
+
+        var needed = tied.Count * PenaltyShootout.RegulationKicks;
+        var pool = await LoadPenaltyPoolAsync(session, needed);
+        if (pool.Count < needed)
+        {
+            _logger.LogInformation("Room {RoomCode}: tie for first but only {Count} bank questions; drawing lots",
+                session.RoomCode, pool.Count);
+            await EndGameAsync(session);
+            return;
+        }
+
+        session.CurrentQuestionIndex = session.Questions.Count - 1;
+        session.Shootout = new ShootoutDocument
+        {
+            PlayerIds = tied.Select(p => p.UserId).OrderBy(_ => Random.Shared.Next()).ToList(),
+            Pool = pool,
+            FaseNumero = session.Questions.Where(q => !q.EsPenalti).Max(q => q.FaseNumero) + 1
+        };
+        session.State = GameState.PhaseBreak;
+        session.TurnDeadlineUnixMs = null;
+        session.TurnGeneration++;
+
+        await _store.ClearDeadlineAsync(session.RoomCode);
+        await _store.SaveAsync(session);
+        await BroadcastPhaseCompletedAsync(session);
+    }
+
+    /// <summary>
+    /// Preguntas jugables del banco del creador que no han salido en la partida, barajadas. Se guardan hasta el
+    /// doble de las necesarias (para la muerte súbita). Sin banco disponible, ninguna (se sorteará).
+    /// </summary>
+    private async Task<List<QuestionSnapshot>> LoadPenaltyPoolAsync(GameSessionDocument session, int needed)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var quizzes = scope.ServiceProvider.GetService<IQuizRepository>();
+            var banco = scope.ServiceProvider.GetService<IBancoPreguntaRepository>();
+            var quiz = quizzes is null ? null : await quizzes.FindByIdAsync(session.QuizId);
+            if (quiz is null || banco is null) return [];
+
+            var used = session.Questions.Where(q => q.Id < 0).Select(q => -q.Id).ToHashSet();
+            var ids = (await banco.FindIdsAsync(quiz.CreatorId, null, null))
+                .Where(id => !used.Contains(id)).OrderBy(_ => Random.Shared.Next()).ToList();
+            if (ids.Count == 0) return [];
+
+            var loaded = (await banco.FindByIdsAsync(quiz.CreatorId, ids)).Where(PoolDrawer.EsJugable).ToDictionary(p => p.Id);
+            return ids.Where(loaded.ContainsKey).Take(needed * 2).Select(id =>
+            {
+                var p = loaded[id];
+                return new QuestionSnapshot
+                {
+                    Id = -p.Id,
+                    Enunciado = p.Enunciado,
+                    ImagenUrl = p.ImagenUrl,
+                    Curiosidad = p.Curiosidad,
+                    FaseNombre = "Penaltis",
+                    FaseColor = PenaltyFaseColor,
+                    EsPenalti = true,
+                    Respuestas = p.Respuestas
+                        .Select((r, i) => new AnswerSnapshot { Id = -(p.Id * 10 + i), Texto = r.Texto, EsCorrecta = r.EsCorrecta })
+                        .OrderBy(_ => Random.Shared.Next()).ToList()
+                };
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load penalty questions for room {RoomCode}", session.RoomCode);
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Siguiente tiro de la tanda (o fin de la partida si ya está decidida). Cada tiro es una pregunta nueva del
+    /// banco para el tirador, con el tiempo normal de turno.
+    /// </summary>
+    private async Task NextPenaltyKickAsync(GameSessionDocument session)
+    {
+        var shootout = session.Shootout!;
+        // Quien ya no está en la partida no puede tirar
+        var gone = PenaltyShootout.Alive(shootout)
+            .Where(id => !session.Players.Any(p => p.UserId == id && p.CanPlay())).ToList();
+        foreach (var id in gone) PenaltyShootout.Withdraw(shootout, id);
+
+        var kicker = PenaltyShootout.NextKicker(shootout);
+        var needed = PenaltyShootout.AtRoundStart(shootout) && PenaltyShootout.InSuddenDeath(shootout)
+            ? PenaltyShootout.Alive(shootout).Count
+            : 1;
+        if (kicker is not null && shootout.Pool.Count < needed)
+        {
+            // Sin preguntas para una ronda completa de muerte súbita: se sortea entre los que siguen
+            PenaltyShootout.StopOutOfQuestions(shootout);
+            kicker = null;
+        }
+
+        if (kicker is null)
+        {
+            shootout.Finished = true;
+            await BroadcastPenaltyFinishedAsync(session);
+            await EndGameAsync(session);
+            return;
+        }
+
+        var question = shootout.Pool[0];
+        shootout.Pool.RemoveAt(0);
+        question.FaseNumero = shootout.FaseNumero;
+        session.Questions.Add(question);
+        session.CurrentQuestionIndex = session.Questions.Count - 1;
+
+        // El tirador pasa a ser quien responde
+        var index = session.TurnQueue.IndexOf(kicker.Value);
+        if (index > 0) session.TurnQueue = session.TurnQueue.Skip(index).Concat(session.TurnQueue.Take(index)).ToList();
+        else if (index < 0) session.TurnQueue.Insert(0, kicker.Value);
+
+        session.TurnStartedAt = DateTime.UtcNow;
+        session.TurnGeneration++;
+        OpenQuestionWithoutTurn(session);
+        await StartTurnDeadlineAsync(session);
+        await BroadcastTurnStartedAsync(session);
+    }
+
+    /// <summary>Tiro resuelto: gol si acierta, parada si falla o se le acaba el tiempo. No suma puntos.</summary>
+    private async Task<TurnResultDto> ResolvePenaltyKickAsync(
+        GameSessionDocument session, PlayerDocument player, QuestionSnapshot question, bool isCorrect, bool timedOut)
+    {
+        PenaltyShootout.RecordKick(session.Shootout!, player.UserId, isCorrect);
+        var correctIndex = question.Respuestas.FindIndex(r => r.EsCorrecta);
+        var turnResult = new TurnResultDto(player.UserId, isCorrect, correctIndex, 0, player.Score,
+            IsPenalty: true, Penalty: BuildPenaltyState(session));
+
+        await BroadcastTurnOutcomeAsync(session.RoomCode, turnResult, timedOut);
+
+        if (session.Mode == GameMode.Presencial)
+        {
+            // Igual que una pregunta normal: el resultado queda en pantalla hasta que el anfitrión pase
+            session.AwaitingNextQuestion = true;
+            session.MarkedAnswerIndex = null;
+            session.LastTurnResult = turnResult;
+            await _store.SaveAsync(session);
+            return turnResult;
+        }
+
+        await AdvanceToNextTurnAsync(session);
+        return turnResult;
+    }
+
+    private static PenaltyStateDto BuildPenaltyState(GameSessionDocument session)
+    {
+        var s = session.Shootout!;
+        var names = s.PlayerIds
+            .Select(id => session.Players.FirstOrDefault(p => p.UserId == id)?.Username ?? "jugador").ToList();
+        return new PenaltyStateDto(
+            s.PlayerIds, names,
+            s.Kicks.Select(k => new PenaltyKickDto(k.PlayerId, k.Round, k.Scored)).ToList(),
+            s.EliminatedInRound.Keys.ToList(),
+            PenaltyShootout.InSuddenDeath(s),
+            PenaltyShootout.CurrentRound(s),
+            s.Finished ? null : session.GetAnsweringPlayerId(),
+            PenaltyShootout.RegulationKicks,
+            s.Finished,
+            s.WinnerId);
+    }
+
+    /// <summary>Último estado de la tanda (pitido final), justo antes de los resultados.</summary>
+    private async Task BroadcastPenaltyFinishedAsync(GameSessionDocument session)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+        await hubContext.Clients.Group(session.RoomCode).SendAsync("PenaltyShootoutFinished", BuildPenaltyState(session));
+    }
+
     private async Task EndGameAsync(GameSessionDocument session)
     {
         session.State = GameState.Finished;
@@ -1757,28 +1983,16 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         using var scope = _scopeFactory.CreateScope();
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
 
-        var filteredPlayers = session.Players
-            .Where(p => p.UserId != session.OwnerId && !p.IsSpectator)
-            .OrderByDescending(p => p.Score)
-            .Select((p, index) => new PlayerResultDto(
-                p.UserId,
-                p.Username,
-                index + 1,
-                p.Score,
-                p.CorrectAnswers,
-                p.WrongAnswers,
-                p.CorrectAnswers + p.WrongAnswers > 0
-                    ? (int)Math.Round((double)p.CorrectAnswers / (p.CorrectAnswers + p.WrongAnswers) * 100)
-                    : 0
-            ))
-            .ToList();
+        // Desempates del podio: penaltis (si los hubo) y sorteos para lo que siga empatado
+        var (filteredPlayers, tiebreaks) = FinalRanking.Build(RankedPlayers(session), session.Shootout, Random.Shared);
 
         var gameResult = new GameResultDto(
             session.RoomCode,
             session.QuizTitle,
             filteredPlayers,
-            session.Questions.Count,
-            session.EndedAt!.Value - session.StartedAt!.Value
+            session.Questions.Count(q => !q.EsPenalti),
+            session.EndedAt!.Value - session.StartedAt!.Value,
+            tiebreaks.Count > 0 ? tiebreaks : null
         );
 
         await hubContext.Clients.Group(session.RoomCode).SendAsync("GameFinished", gameResult);
@@ -1947,7 +2161,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.OcarinaOpen ? session.OcarinaMelody?.Select(n => new OcarinaNoteDto(n.Pitch, n.Figure.ToString())).ToList() : null,
             session.OcarinaOpen ? OcarinaListenRemainingMs(session) : 0,
             BuzzerLockedRemainingMs(session),
-            BuzzerWaitingForHost(session)
+            BuzzerWaitingForHost(session),
+            session.Shootout is { Started: true } ? BuildPenaltyState(session) : null
         );
     }
 

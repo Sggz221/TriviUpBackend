@@ -45,7 +45,7 @@ public static class PoolDrawer
     }
 
     /// <summary>Al menos dos respuestas con texto y exactamente una correcta.</summary>
-    private static bool EsJugable(BancoPregunta p)
+    public static bool EsJugable(BancoPregunta p)
     {
         var respuestas = p.Respuestas;
         return !string.IsNullOrWhiteSpace(p.Enunciado) && respuestas.Count >= 2 &&

@@ -53,6 +53,9 @@ public sealed class GameSessionDocument
     /// <summary>true mientras el ladrón está respondiendo; false cuando el turno vuelve al original.</summary>
     public bool StealActive { get; set; }
 
+    /// <summary>Tanda de penaltis para desempatar el 1º puesto al acabar las preguntas (null si no hay).</summary>
+    public ShootoutDocument? Shootout { get; set; }
+
     /// <summary>Índices de respuestas eliminadas por la ruleta en la pregunta actual.</summary>
     public List<int> EliminatedAnswerIndexes { get; set; } = new();
 
@@ -204,6 +207,36 @@ public sealed class ColorGuessDocument
     public ColorHsb Color { get; set; } = new(0, 0, 0);
 }
 
+/// <summary>
+/// Tanda de penaltis (reglas en <see cref="Services.PenaltyShootout"/>). Cada tiro es una pregunta del banco del
+/// creador del cuestionario: acierto = gol. No suma puntos; solo decide el desempate.
+/// </summary>
+public sealed class ShootoutDocument
+{
+    /// <summary>Jugadores empatados, en el orden de tiro (sorteado al crear la tanda).</summary>
+    public List<long> PlayerIds { get; set; } = new();
+    public List<PenaltyKickDocument> Kicks { get; set; } = new();
+    /// <summary>Ronda en la que quedó eliminado cada jugador (ya no puede ganar).</summary>
+    public Dictionary<long, int> EliminatedInRound { get; set; } = new();
+    /// <summary>El anfitrión ya ha empezado la tanda (antes se está en el intermedio de "ronda extra").</summary>
+    public bool Started { get; set; }
+    public bool Finished { get; set; }
+    public long? WinnerId { get; set; }
+    /// <summary>La tanda se cortó por falta de preguntas en la muerte súbita: el 1º se sortea entre los que seguían.</summary>
+    public bool OutOfQuestions { get; set; }
+    /// <summary>Preguntas del banco aún sin usar, ya barajadas (una por tiro).</summary>
+    public List<QuestionSnapshot> Pool { get; set; } = new();
+    /// <summary>Número de fase con el que se juegan los penaltis (la siguiente a la última de la partida).</summary>
+    public int FaseNumero { get; set; }
+}
+
+public sealed class PenaltyKickDocument
+{
+    public long PlayerId { get; set; }
+    public int Round { get; set; }
+    public bool Scored { get; set; }
+}
+
 public sealed class BetDocument
 {
     public long UserId { get; set; }
@@ -232,6 +265,9 @@ public sealed class QuestionSnapshot
 
     /// <summary>Pregunta de ocarina: el primero en tocar la melodía se lleva la pregunta.</summary>
     public bool EsOcarina { get; set; }
+
+    /// <summary>Pregunta de la tanda de penaltis (no cuenta como pregunta de la partida).</summary>
+    public bool EsPenalti { get; set; }
 
     /// <summary>Pregunta sin turno (pulsador, colores u ocarina).</summary>
     public bool SinTurno => EsPulsador || EsColores || EsOcarina;

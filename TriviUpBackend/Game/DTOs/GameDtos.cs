@@ -68,7 +68,11 @@ public record TurnResultDto(
     bool IsSteal = false,
     bool DoubleOrNothing = false,
     long? ReturnsToPlayerId = null,
-    List<BetResultDto>? Bets = null
+    List<BetResultDto>? Bets = null,
+    /// <summary>Tiro de la tanda de penaltis (acierto = gol; no suma puntos).</summary>
+    bool IsPenalty = false,
+    /// <summary>Estado de la tanda tras el tiro.</summary>
+    PenaltyStateDto? Penalty = null
 );
 
 /// <summary>
@@ -119,7 +123,42 @@ public record GameResultDto(
     string QuizTitle,
     List<PlayerResultDto> PlayerResults,
     int TotalQuestions,
-    TimeSpan GameDuration
+    TimeSpan GameDuration,
+    /// <summary>Desempates del podio, en el orden en que se muestran (penaltis primero, luego sorteos).</summary>
+    List<TiebreakDto>? Tiebreaks = null
+);
+
+/// <summary>
+/// Desempate del podio. <paramref name="Kind"/>: "penaltis", "moneda" (2 empatados) o "ruleta" (3+).
+/// <paramref name="Position"/> es el primer puesto en disputa. En los sorteos, <paramref name="PlayerIds"/> es el orden
+/// resultante y <paramref name="Picks"/> cuántos puestos del podio se deciden; en los penaltis, el orden de tiro.
+/// </summary>
+public record TiebreakDto(
+    string Kind,
+    int Position,
+    List<long> PlayerIds,
+    List<string> Usernames,
+    int Picks = 0,
+    List<PenaltyKickDto>? Kicks = null,
+    long? WinnerId = null,
+    bool OutOfQuestions = false
+);
+
+/// <summary>Un tiro de la tanda de penaltis.</summary>
+public record PenaltyKickDto(long PlayerId, int Round, bool Scored);
+
+/// <summary>Estado de la tanda de penaltis para el marcador.</summary>
+public record PenaltyStateDto(
+    List<long> PlayerIds,
+    List<string> Usernames,
+    List<PenaltyKickDto> Kicks,
+    List<long> Eliminated,
+    bool SuddenDeath,
+    int Round,
+    long? KickerId,
+    int RegulationKicks,
+    bool Finished,
+    long? WinnerId
 );
 
 /// <summary>
@@ -190,7 +229,9 @@ public record TurnStartedDto(
     /// <summary>Lo que falta para poder pulsar en una cuenta atrás ya empezada (0 = ya se puede o no ha empezado).</summary>
     int BuzzerLockedRemainingMs = 0,
     /// <summary>Pulsador a la espera de que el anfitrión empiece la cuenta atrás de verdad (nadie puede pulsar).</summary>
-    bool BuzzerWaitingForHost = false
+    bool BuzzerWaitingForHost = false,
+    /// <summary>Tiro de la tanda de penaltis: estado de la tanda (null en una pregunta normal).</summary>
+    PenaltyStateDto? Penalty = null
 );
 
 /// <summary>Nota de la melodía de la ocarina: botón 0-4 y figura (Semicorchea, Corchea, Negra, Blanca).</summary>
@@ -292,7 +333,10 @@ public record PhaseCompletedDto(
     List<PlayerDto> Players,
     string? FaseColor = null,
     int SiguienteFaseNumero = 0,
-    string? SiguienteFaseColor = null
+    string? SiguienteFaseColor = null,
+    /// <summary>Intermedio antes de la tanda de penaltis que desempata el 1º puesto.</summary>
+    bool IsExtraRound = false,
+    List<long>? TiedPlayerIds = null
 );
 
 /// <summary>
