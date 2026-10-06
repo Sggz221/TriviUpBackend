@@ -686,32 +686,6 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         return turnResult;
     }
 
-    /// <summary>
-    /// Comodín Pasar: cierra el turno sin acierto ni fallo (ni puntos ni contadores). Las apuestas se anulan y
-    /// se devuelven, como si el jugador en turno no hubiera llegado a responder, y la pregunta se descarta.
-    /// </summary>
-    private async Task PassQuestionAsync(GameSessionDocument session, PlayerDocument player, QuestionSnapshot question)
-    {
-        session.CallActive = false;
-        var bets = ResolveBets(session, originalAnswered: false, isCorrect: false);
-        var turnResult = new TurnResultDto(player.UserId, false, question.Respuestas.FindIndex(r => r.EsCorrecta), 0, player.Score,
-            Bets: bets, Passed: true);
-
-        await BroadcastTurnOutcomeAsync(session.RoomCode, turnResult, timedOut: false);
-
-        if (session.Mode == GameMode.Presencial)
-        {
-            // Igual que una respuesta: el resultado queda en pantalla hasta que el anfitrión pase de pregunta.
-            session.AwaitingNextQuestion = true;
-            session.MarkedAnswerIndex = null;
-            session.LastTurnResult = turnResult;
-            await _store.SaveAsync(session);
-            return;
-        }
-
-        await AdvanceToNextTurnAsync(session);
-    }
-
     /// <summary>Resta puntos sin bajar de 0; devuelve lo que realmente se restó.</summary>
     private static int ApplyPenalty(PlayerDocument player, int penalty)
     {
@@ -913,6 +887,10 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         {
             case ComodinTipo.Ruleta:
             {
+                if (IncorrectAnswersLeft(session, question).Count == 0)
+                {
+                    return Result.Failure<ComodinUsedDto>("No quedan respuestas incorrectas que eliminar.");
+                }
                 var (hueco, valor) = ComodinReglas.TirarRuleta(Random.Shared);
                 ruletaHueco = hueco;
                 (eliminated, unmarked) = EliminateIncorrectAnswers(session, question, valor);
@@ -928,16 +906,15 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             }
             case ComodinTipo.CincuentaCincuenta:
             {
-                var incorrectas = IncorrectAnswersLeft(session, question).Count;
-                (eliminated, unmarked) = EliminateIncorrectAnswers(session, question, ComodinReglas.EliminadasCincuentaCincuenta(incorrectas));
+                // Solo cuenta lo que aún queda (la ruleta u otro 50/50 pueden haber eliminado ya algunas)
+                var aEliminar = ComodinReglas.EliminadasCincuentaCincuenta(IncorrectAnswersLeft(session, question).Count);
+                if (aEliminar == 0)
+                {
+                    return Result.Failure<ComodinUsedDto>("No quedan respuestas incorrectas que eliminar.");
+                }
+                (eliminated, unmarked) = EliminateIncorrectAnswers(session, question, aEliminar);
                 break;
             }
-            case ComodinTipo.Pasar:
-                if (session.StealActive)
-                {
-                    return Result.Failure<ComodinUsedDto>("No se puede pasar una pregunta robada.");
-                }
-                break;
             case ComodinTipo.CambiarPregunta:
             case ComodinTipo.CambiarPreguntaRival:
             {
@@ -1049,11 +1026,6 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             await _store.ClearDeadlineAsync(roomCode);
             await StartTurnDeadlineAsync(session);
             await BroadcastTurnStartedAsync(session);
-        }
-        else if (tipo == ComodinTipo.Pasar)
-        {
-            await _store.ClearDeadlineAsync(roomCode);
-            await PassQuestionAsync(session, player, question);
         }
         else if (tipo == ComodinTipo.Robo)
         {

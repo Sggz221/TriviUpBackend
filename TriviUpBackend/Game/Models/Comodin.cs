@@ -2,29 +2,29 @@ namespace TriviUpBackend.Game.Models;
 
 /// <summary>
 /// Comodines que cada jugador puede usar durante la partida (por defecto una vez; configurable por sala).
+/// Los valores son explícitos porque los comodines usados se guardan como número en la sesión (Redis): el 6 era
+/// el antiguo comodín Pasar y no se reutiliza.
 /// </summary>
 public enum ComodinTipo
 {
     /// <summary>Turno propio: elimina entre 0 y 3 respuestas incorrectas al azar.</summary>
-    Ruleta,
+    Ruleta = 0,
     /// <summary>Turno propio: acierto = doble del valor de una pregunta; fallo = pierde una pregunta.</summary>
-    DobleONada,
+    DobleONada = 1,
     /// <summary>Fuera de turno: responde la pregunta de quien tiene el turno.</summary>
-    Robo,
+    Robo = 2,
     /// <summary>Fuera de turno: apuesta si el jugador en turno acertará o fallará.</summary>
-    Apuesta,
+    Apuesta = 3,
     /// <summary>Turno propio, solo en modo Presencial: el equipo llama a un amigo y se muestra un cartel hasta que el anfitrión lo quita.</summary>
-    Llamada,
+    Llamada = 4,
     /// <summary>Turno propio: elimina la mitad (redondeando a la baja) de las respuestas incorrectas que quedan.</summary>
-    CincuentaCincuenta,
-    /// <summary>Turno propio: salta la pregunta sin responderla. No suma ni resta puntos, la pregunta se descarta y pasa el turno.</summary>
-    Pasar,
+    CincuentaCincuenta = 5,
     /// <summary>Fuera de turno, solo en modo Normal: oculta el texto de las respuestas de quien está respondiendo durante toda la pregunta.</summary>
-    OcultarTexto,
+    OcultarTexto = 7,
     /// <summary>Turno propio: cambia tu pregunta por otra aún no jugada de la misma fase (la actual sale más adelante).</summary>
-    CambiarPregunta,
+    CambiarPregunta = 8,
     /// <summary>Fuera de turno: cambia la pregunta de quien responde por otra aún no jugada de la misma fase.</summary>
-    CambiarPreguntaRival
+    CambiarPreguntaRival = 9
 }
 
 /// <summary>
@@ -84,7 +84,7 @@ public static class ComodinReglas
             .ToDictionary(x => x.Key, x => x.Restantes);
 
     /// <summary>true si el comodín se usa durante el turno propio; false si fuera de él.</summary>
-    public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada or ComodinTipo.Llamada or ComodinTipo.CincuentaCincuenta or ComodinTipo.Pasar or ComodinTipo.CambiarPregunta;
+    public static bool EsDeTurno(ComodinTipo tipo) => tipo is ComodinTipo.Ruleta or ComodinTipo.DobleONada or ComodinTipo.Llamada or ComodinTipo.CincuentaCincuenta or ComodinTipo.CambiarPregunta;
 
     /// <summary>
     /// Huecos de la ruleta en orden horario desde arriba; cada uno dice cuántas respuestas
