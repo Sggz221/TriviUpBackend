@@ -3,7 +3,7 @@ namespace TriviUpBackend.Game.Models;
 /// <summary>
 /// Comodines que cada jugador puede usar durante la partida (por defecto una vez; configurable por sala).
 /// Los valores son explícitos porque los comodines usados se guardan como número en la sesión (Redis): el 6 era
-/// el antiguo comodín Pasar y no se reutiliza.
+/// el antiguo comodín Pasar y el 7 el antiguo Ocultar texto; no se reutilizan.
 /// </summary>
 public enum ComodinTipo
 {
@@ -19,8 +19,6 @@ public enum ComodinTipo
     Llamada = 4,
     /// <summary>Turno propio: elimina la mitad (redondeando a la baja) de las respuestas incorrectas que quedan.</summary>
     CincuentaCincuenta = 5,
-    /// <summary>Fuera de turno, solo en modo Normal: oculta el texto de las respuestas de quien está respondiendo durante toda la pregunta.</summary>
-    OcultarTexto = 7,
     /// <summary>Turno propio: cambia tu pregunta por otra aún no jugada de la misma fase (la actual sale más adelante).</summary>
     CambiarPregunta = 8,
     /// <summary>Fuera de turno: cambia la pregunta de quien responde por otra aún no jugada de la misma fase.</summary>
@@ -35,14 +33,12 @@ public static class ComodinReglas
     public static readonly IReadOnlyList<ComodinTipo> Todos = Enum.GetValues<ComodinTipo>();
 
     /// <summary>
-    /// Comodines que existen en un modo de juego: la Llamada solo en Presencial y Ocultar texto solo en Normal
-    /// (en presencial los jugadores no leen las respuestas en su dispositivo).
+    /// Comodines que existen en un modo de juego: la Llamada solo en Presencial.
     /// </summary>
     public static IEnumerable<ComodinTipo> Disponibles(GameMode modo) =>
         Todos.Where(c => c switch
         {
             ComodinTipo.Llamada => modo == GameMode.Presencial,
-            ComodinTipo.OcultarTexto => modo == GameMode.Normal,
             _ => true
         });
 

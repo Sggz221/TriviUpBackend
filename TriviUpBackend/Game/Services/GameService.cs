@@ -980,22 +980,6 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 questionChanged = true;
                 break;
             }
-            case ComodinTipo.OcultarTexto:
-                if (session.StealActive)
-                {
-                    return Result.Failure<ComodinUsedDto>("No se puede ocultar el texto mientras la pregunta está robada.");
-                }
-                if (session.TextHiddenForPlayerId.HasValue)
-                {
-                    return Result.Failure<ComodinUsedDto>("El texto de esta pregunta ya está oculto.");
-                }
-                if (answeringId is null)
-                {
-                    return Result.Failure<ComodinUsedDto>("Nadie está respondiendo ahora mismo.");
-                }
-                targetPlayer = answeringId;
-                session.TextHiddenForPlayerId = answeringId;
-                break;
             case ComodinTipo.DobleONada:
                 session.DoubleOrNothingPlayers.Add(userId);
                 break;
@@ -2151,7 +2135,6 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.CallActive,
             question.SinTurno,
             session.BuzzerOpen,
-            session.TextHiddenForPlayerId,
             question.EsColores,
             session.ColorOpen,
             session.ColorOpen ? session.ColorTarget : null,

@@ -111,7 +111,7 @@ public record ComodinUsedDto(
     int? RuletaHueco = null,
     int? RuletaDuracionMs = null,
     Dictionary<string, int>? RemainingUses = null,
-    /// <summary>Jugador afectado por el comodín (Ocultar texto: quien responde).</summary>
+    /// <summary>Jugador afectado por el comodín (Cambiar su pregunta: quien responde).</summary>
     long? TargetPlayerId = null
 );
 
@@ -210,8 +210,6 @@ public record TurnStartedDto(
     bool CallActive = false,
     bool IsDynamic = false,
     bool BuzzerOpen = false,
-    /// <summary>Jugador al que se le oculta el texto de las respuestas en esta pregunta (null = nadie).</summary>
-    long? TextHiddenForPlayerId = null,
     /// <summary>Pregunta de colores (IsDynamic también es true: no tiene turno).</summary>
     bool IsColor = false,
     /// <summary>Prueba de colores abierta: todos imitan <see cref="ColorTarget"/> (CurrentPlayerId = 0).</summary>
