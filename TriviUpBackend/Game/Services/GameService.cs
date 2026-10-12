@@ -517,6 +517,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
         if (!session.BuzzerOpen) return Result.Failure("No hay ningún pulsador esperando.");
         if (!BuzzerWaitingForHost(session)) return Result.Failure("La cuenta atrás ya ha empezado.");
+        if (AnswersPending(session)) return Result.Failure("Muestra antes todas las respuestas.");
 
         if (!fake)
         {
@@ -529,6 +530,47 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
         await hubContext.Clients.Group(roomCode).SendAsync("BuzzerCountdown",
             new BuzzerCountdownDto(questionId, fake, BuzzerCountdownMs, GetTurnLimitSeconds(session)));
+        return Result.Success();
+    }
+
+    /// <inheritdoc />
+    public async Task<Result> RevealAnswersAsync(string roomCode, long ownerId, long questionId, bool all)
+    {
+        await using var roomLock = await AcquireRoomLockAsync(roomCode);
+        if (roomLock is null) return Result.Failure("Room is busy. Please retry.");
+
+        var session = await _store.GetAsync(roomCode);
+        if (session is null) return Result.Failure("Room not found.");
+        if (session.OwnerId != ownerId) return Result.Failure("Solo el anfitrión puede mostrar las respuestas.");
+        if (session.State != GameState.Playing) return Result.Failure("La partida no está en juego.");
+        if (session.CurrentQuestionIndex >= session.Questions.Count ||
+            session.Questions[session.CurrentQuestionIndex].Id != questionId)
+        {
+            return Result.Failure("La pregunta ya ha cambiado.");
+        }
+        if (!AnswersPending(session)) return Result.Failure("Ya se ven todas las respuestas.");
+
+        var total = session.Questions[session.CurrentQuestionIndex].Respuestas.Count;
+        var revealed = all ? total : session.RevealedAnswers!.Value + 1;
+        session.RevealedAnswers = revealed >= total ? null : revealed;
+
+        var timeLimit = 0;
+        if (session.RevealedAnswers is null)
+        {
+            // Con todas a la vista empieza a correr el tiempo (en el pulsador, al lanzar su cuenta atrás)
+            session.TurnStartedAt = DateTime.UtcNow;
+            await StartTurnDeadlineAsync(session);
+            if (session.TurnDeadlineUnixMs.HasValue) timeLimit = GetTurnLimitSeconds(session);
+        }
+        else
+        {
+            await _store.SaveAsync(session);
+        }
+
+        using var scope = _scopeFactory.CreateScope();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<GameHub>>();
+        await hubContext.Clients.Group(roomCode).SendAsync("AnswersRevealed",
+            new AnswersRevealedDto(questionId, session.RevealedAnswers, timeLimit));
         return Result.Success();
     }
 
@@ -568,6 +610,10 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             (index < 0 || index >= question.Respuestas.Count || session.EliminatedAnswerIndexes.Contains(index)))
         {
             return Result.Failure("Esa respuesta no se puede marcar.");
+        }
+        if (answerIndex is { } shown && session.RevealedAnswers is { } revealedCount && shown >= revealedCount)
+        {
+            return Result.Failure("Esa respuesta todavía no se ha mostrado.");
         }
 
         session.MarkedAnswerIndex = answerIndex;
@@ -977,6 +1023,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 session.EliminatedAnswerIndexes.Clear();
                 session.MarkedAnswerIndex = null;
                 if (tipo == ComodinTipo.CambiarPreguntaRival) targetPlayer = answeringId;
+                // Pregunta nueva: en presencial el anfitrión vuelve a mostrar las respuestas una a una
+                if (session.Mode == GameMode.Presencial) session.RevealedAnswers = 0;
                 questionChanged = true;
                 break;
             }
@@ -1171,7 +1219,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             var remainingMs = session.TurnDeadlineUnixMs.Value - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             session.PausedTimeRemaining = Math.Max(0, (int)Math.Ceiling(remainingMs / 1000.0));
         }
-        else if (session.TurnStartedAt.HasValue && GetTurnLimitSeconds(session) > 0 && !BuzzerWaitingForHost(session))
+        else if (session.TurnStartedAt.HasValue && GetTurnLimitSeconds(session) > 0 && !TimerOnHold(session))
         {
             var elapsed = (DateTime.UtcNow - session.TurnStartedAt.Value).TotalSeconds;
             session.PausedTimeRemaining = Math.Max(0, GetTurnLimitSeconds(session) + 1 - (int)elapsed);
@@ -1216,7 +1264,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return Result.Failure("Game can only be resumed when paused.");
         }
 
-        var hasLimit = GetTurnLimitSeconds(session) > 0 && !BuzzerWaitingForHost(session);
+        var hasLimit = GetTurnLimitSeconds(session) > 0 && !TimerOnHold(session);
         var timeToResume = hasLimit ? (session.PausedTimeRemaining ?? GetTurnLimitSeconds(session) + 1) : 0;
         session.PausedTimeRemaining = null;
         if (session.PausedBuzzerLockMs is { } lockMs)
@@ -1511,6 +1559,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         session.OcarinaListenUntilUnixMs = session.OcarinaOpen
             ? DateTimeOffset.UtcNow.AddMilliseconds(OcarinaMelody.PlaybackMs(session.OcarinaMelody!)).ToUnixTimeMilliseconds()
             : null;
+        // Presencial: sale primero la pregunta y el anfitrión va mostrando las respuestas (colores y ocarina ya
+        // tienen su propia fase antes de responder)
+        session.RevealedAnswers = session.Mode == GameMode.Presencial && question is { EsColores: false, EsOcarina: false }
+            ? 0
+            : null;
     }
 
     /// <summary>Cuenta atrás (5-4-3-2-1) que lanza el anfitrión antes de abrir el pulsador.</summary>
@@ -1519,6 +1572,14 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     /// <summary>Pulsador abierto pero esperando a que el anfitrión lance la cuenta atrás de verdad.</summary>
     private static bool BuzzerWaitingForHost(GameSessionDocument session) =>
         session.BuzzerOpen && session.BuzzerOpensAtUnixMs is null;
+
+    /// <summary>Presencial: el anfitrión aún no ha mostrado todas las respuestas de la pregunta.</summary>
+    private static bool AnswersPending(GameSessionDocument session) =>
+        session.RevealedAnswers is { } revealed && session.CurrentQuestionIndex < session.Questions.Count
+        && revealed < session.Questions[session.CurrentQuestionIndex].Respuestas.Count;
+
+    /// <summary>El tiempo del turno aún no corre: esperando la cuenta atrás del pulsador o a que se vean las respuestas.</summary>
+    private static bool TimerOnHold(GameSessionDocument session) => BuzzerWaitingForHost(session) || AnswersPending(session);
 
     /// <summary>Lo que falta para poder pulsar (0 si ya se puede o no hay pulsador).</summary>
     private static int BuzzerLockedRemainingMs(GameSessionDocument session) =>
@@ -2033,6 +2094,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             {
                 remaining = session.State == GameState.Paused
                     ? session.PausedTimeRemaining ?? limit
+                    : TimerOnHold(session) ? limit
                     : GetVisibleRemainingSeconds(session);
                 remaining = Math.Clamp(remaining, 1, limit);
             }
@@ -2081,7 +2143,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     {
         var limit = GetTurnLimitSeconds(session);
         // Sin cuenta atrás lanzada no corre el tiempo: el plazo empieza con la cuenta atrás de verdad
-        if (limit <= 0 || BuzzerWaitingForHost(session))
+        if (limit <= 0 || TimerOnHold(session))
         {
             session.TurnDeadlineUnixMs = null;
             await _store.SaveAsync(session);
@@ -2145,7 +2207,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             session.OcarinaOpen ? OcarinaListenRemainingMs(session) : 0,
             BuzzerLockedRemainingMs(session),
             BuzzerWaitingForHost(session),
-            session.Shootout is { Started: true } ? BuildPenaltyState(session) : null
+            session.Shootout is { Started: true } ? BuildPenaltyState(session) : null,
+            AnswersPending(session) ? session.RevealedAnswers : null
         );
     }
 

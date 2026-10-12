@@ -107,6 +107,12 @@ public interface IGameService
     Task<Result> StartBuzzerCountdownAsync(string roomCode, long ownerId, long questionId, bool fake);
 
     /// <summary>
+    /// Modo presencial: el anfitrión muestra la siguiente respuesta de la pregunta (o todas con <paramref name="all"/>).
+    /// El tiempo del turno no corre hasta que se ven todas.
+    /// </summary>
+    Task<Result> RevealAnswersAsync(string roomCode, long ownerId, long questionId, bool all);
+
+    /// <summary>
     /// Modo presencial: el anfitrión quita el cartel de la Llamada en curso (lo ve toda la sala,
     /// pero solo él puede cerrarlo).
     /// </summary>

@@ -117,10 +117,26 @@ public class GameServicePresencialTests
 
     private static long Bystander(GameSessionDocument s) => s.TurnQueue.First(id => id != s.GetCurrentPlayerId());
 
+    /// <summary>El anfitrión muestra las respuestas que falten (sale primero la pregunta) y marca una.</summary>
+    private async Task<CSharpFunctionalExtensions.Result> MarkAsync(string roomCode, long questionId, int? answerIndex)
+    {
+        await RevealAllAsync(roomCode);
+        return await _service.MarkAnswerAsync(roomCode, Owner, questionId, answerIndex);
+    }
+
+    private async Task RevealAllAsync(string roomCode)
+    {
+        var s = await SessionAsync(roomCode);
+        if (s.RevealedAnswers is not null)
+        {
+            Assert.True((await _service.RevealAnswersAsync(roomCode, Owner, Current(s).Id, all: true)).IsSuccess);
+        }
+    }
+
     private async Task<TurnResultDto> MarkAndConfirmAsync(string roomCode, int answerIndex)
     {
         var s = await SessionAsync(roomCode);
-        Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, Current(s).Id, answerIndex)).IsSuccess);
+        Assert.True((await MarkAsync(roomCode, Current(s).Id, answerIndex)).IsSuccess);
         var result = await _service.ConfirmAnswerAsync(roomCode, Owner, Current(s).Id);
         Assert.True(result.IsSuccess, result.IsFailure ? result.Error : null);
         return result.Value;
@@ -246,8 +262,8 @@ public class GameServicePresencialTests
         var player = s.GetCurrentPlayerId()!.Value;
         var questionId = Current(s).Id;
 
-        Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, questionId, WrongIndex(s))).IsSuccess);
-        Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, questionId, CorrectIndex(s))).IsSuccess);
+        Assert.True((await MarkAsync(roomCode, questionId, WrongIndex(s))).IsSuccess);
+        Assert.True((await MarkAsync(roomCode, questionId, CorrectIndex(s))).IsSuccess);
 
         s = await SessionAsync(roomCode);
         Assert.Equal(CorrectIndex(s), s.MarkedAnswerIndex);
@@ -257,7 +273,7 @@ public class GameServicePresencialTests
         Assert.Equal([WrongIndex(s), CorrectIndex(s)], marks.Select(m => m.AnswerIndex!.Value));
         Assert.DoesNotContain(_sent, m => m.Method == "TurnResult");
 
-        Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, questionId, null)).IsSuccess);
+        Assert.True((await MarkAsync(roomCode, questionId, null)).IsSuccess);
         Assert.Null((await SessionAsync(roomCode)).MarkedAnswerIndex);
         Assert.Null(((AnswerMarkedDto)_sent.Last(m => m.Method == "AnswerMarked").Payload!).AnswerIndex);
     }
@@ -418,7 +434,7 @@ public class GameServicePresencialTests
         var roomCode = await StartRoomAsync();
         var s = await SessionAsync(roomCode);
 
-        Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, Current(s).Id, WrongIndex(s))).IsSuccess);
+        Assert.True((await MarkAsync(roomCode, Current(s).Id, WrongIndex(s))).IsSuccess);
 
         Assert.True((await _service.UseComodinAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.DobleONada, Current(s).Id)).IsSuccess);
         Assert.Equal(WrongIndex(s), (await SessionAsync(roomCode)).MarkedAnswerIndex);
@@ -430,7 +446,7 @@ public class GameServicePresencialTests
         var roomCode = await StartRoomAsync();
         var s = await SessionAsync(roomCode);
         var thief = Bystander(s);
-        Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, Current(s).Id, WrongIndex(s))).IsSuccess);
+        Assert.True((await MarkAsync(roomCode, Current(s).Id, WrongIndex(s))).IsSuccess);
 
         Assert.True((await _service.UseComodinAsync(roomCode, thief, ComodinTipo.Robo, Current(s).Id)).IsSuccess);
 
@@ -474,7 +490,7 @@ public class GameServicePresencialTests
             var s = await SessionAsync(roomCode);
             // Marcar todas las incorrectas una a una no es posible; se marca una y se reintenta hasta que la ruleta la elimine.
             var marked = WrongIndex(s);
-            await _service.MarkAnswerAsync(roomCode, Owner, Current(s).Id, marked);
+            await MarkAsync(roomCode, Current(s).Id, marked);
             _sent.Clear();
 
             var ruleta = await _service.UseComodinAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.Ruleta, Current(s).Id);
@@ -501,7 +517,7 @@ public class GameServicePresencialTests
     {
         var roomCode = await StartRoomAsync();
         var s = await SessionAsync(roomCode);
-        await _service.MarkAnswerAsync(roomCode, Owner, Current(s).Id, WrongIndex(s));
+        await MarkAsync(roomCode, Current(s).Id, WrongIndex(s));
 
         var rejoin = (await _service.GetRejoinStateAsync(roomCode))!;
         Assert.Equal("Presencial", rejoin.GameState.Mode);
@@ -514,6 +530,135 @@ public class GameServicePresencialTests
         rejoin = (await _service.GetRejoinStateAsync(roomCode))!;
         Assert.NotNull(rejoin.Turn);
         Assert.False(rejoin.LastTurnResult!.IsCorrect);
+    }
+
+    // ========== Revelado de respuestas (sale primero la pregunta) ==========
+
+    [Fact]
+    public async Task NewQuestion_Presencial_StartsWithAnswersHidden_NormalModeShowsAll()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        Assert.Equal(0, s.RevealedAnswers);
+        Assert.Equal(0, (await _service.GetRejoinStateAsync(roomCode))!.Turn!.RevealedAnswers);
+
+        var normalRoom = await StartRoomAsync(mode: GameMode.Normal);
+        Assert.Null((await SessionAsync(normalRoom)).RevealedAnswers);
+        Assert.Null((await _service.GetRejoinStateAsync(normalRoom))!.Turn!.RevealedAnswers);
+    }
+
+    [Fact]
+    public async Task RevealAnswers_OneByOne_ThenAll_BroadcastsCount()
+    {
+        var roomCode = await StartRoomAsync();
+        var questionId = Current(await SessionAsync(roomCode)).Id;
+
+        Assert.True((await _service.RevealAnswersAsync(roomCode, Owner, questionId, all: false)).IsSuccess);
+        Assert.Equal(1, (await SessionAsync(roomCode)).RevealedAnswers);
+        var first = Assert.IsType<AnswersRevealedDto>(_sent.Last(m => m.Method == "AnswersRevealed").Payload);
+        Assert.Equal(new AnswersRevealedDto(questionId, 1, 0), first);
+        Assert.Equal(1, (await _service.GetRejoinStateAsync(roomCode))!.Turn!.RevealedAnswers);
+
+        Assert.True((await _service.RevealAnswersAsync(roomCode, Owner, questionId, all: true)).IsSuccess);
+        Assert.Null((await SessionAsync(roomCode)).RevealedAnswers);
+        var all = Assert.IsType<AnswersRevealedDto>(_sent.Last(m => m.Method == "AnswersRevealed").Payload);
+        Assert.Null(all.RevealedAnswers);
+        Assert.Null((await _service.GetRejoinStateAsync(roomCode))!.Turn!.RevealedAnswers);
+
+        // Ya no queda nada por mostrar
+        Assert.True((await _service.RevealAnswersAsync(roomCode, Owner, questionId, all: false)).IsFailure);
+    }
+
+    [Fact]
+    public async Task RevealAnswers_LastOne_LeavesAllVisible()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        for (var i = 0; i < Current(s).Respuestas.Count; i++)
+        {
+            Assert.True((await _service.RevealAnswersAsync(roomCode, Owner, Current(s).Id, all: false)).IsSuccess);
+        }
+
+        Assert.Null((await SessionAsync(roomCode)).RevealedAnswers);
+    }
+
+    [Fact]
+    public async Task RevealAnswers_RejectsNonHost_StaleQuestion_AndNormalMode()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+
+        Assert.True((await _service.RevealAnswersAsync(roomCode, s.TurnQueue[0], Current(s).Id, all: true)).IsFailure);
+        Assert.True((await _service.RevealAnswersAsync(roomCode, Owner, Current(s).Id + 999, all: true)).IsFailure);
+        Assert.Equal(0, (await SessionAsync(roomCode)).RevealedAnswers);
+
+        var normalRoom = await StartRoomAsync(mode: GameMode.Normal);
+        var normal = await SessionAsync(normalRoom);
+        Assert.True((await _service.RevealAnswersAsync(normalRoom, Owner, Current(normal).Id, all: true)).IsFailure);
+    }
+
+    [Fact]
+    public async Task MarkAnswer_HiddenAnswer_Fails_UntilItIsShown()
+    {
+        var roomCode = await StartRoomAsync();
+        var questionId = Current(await SessionAsync(roomCode)).Id;
+
+        Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, questionId, 0)).IsFailure);
+        await _service.RevealAnswersAsync(roomCode, Owner, questionId, all: false);
+        Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, questionId, 0)).IsSuccess);
+        Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, questionId, 1)).IsFailure);
+        // Desmarcar siempre se puede
+        Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, questionId, null)).IsSuccess);
+    }
+
+    [Fact]
+    public async Task NextQuestion_HidesAnswersAgain()
+    {
+        var roomCode = await StartRoomAsync();
+        await MarkAndConfirmAsync(roomCode, CorrectIndex(await SessionAsync(roomCode)));
+        Assert.True((await _service.NextQuestionAsync(roomCode, Owner)).IsSuccess);
+
+        Assert.Equal(0, (await SessionAsync(roomCode)).RevealedAnswers);
+    }
+
+    [Fact]
+    public async Task CambiarPregunta_Presencial_HidesTheNewQuestionsAnswers()
+    {
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        await RevealAllAsync(roomCode);
+
+        var result = await _service.UseComodinAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.CambiarPregunta, Current(s).Id);
+
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error : null);
+        Assert.Equal(0, (await SessionAsync(roomCode)).RevealedAnswers);
+    }
+
+    [Fact]
+    public async Task Buzzer_Presencial_CountdownWaitsUntilAnswersAreShown()
+    {
+        _questions =
+        [
+            new Pregunta
+            {
+                Id = 1, NumeroPregunta = 1, FaseNumero = 1, Enunciado = "Pulsador",
+                Tipo = TriviUpBackend.Cuestionarios.Entities.TiposPregunta.Pulsador,
+                Respuestas =
+                [
+                    new Respuesta { Id = 11, Texto = "Sí", EsCorrecta = true },
+                    new Respuesta { Id = 12, Texto = "No", EsCorrecta = false }
+                ]
+            },
+            .. FourAnswerQuestions(2, firstId: 2)
+        ];
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+        Assert.True(s.BuzzerOpen);
+        Assert.Equal(0, s.RevealedAnswers);
+
+        Assert.True((await _service.StartBuzzerCountdownAsync(roomCode, Owner, Current(s).Id, fake: false)).IsFailure);
+        Assert.True((await _service.RevealAnswersAsync(roomCode, Owner, Current(s).Id, all: true)).IsSuccess);
+        Assert.True((await _service.StartBuzzerCountdownAsync(roomCode, Owner, Current(s).Id, fake: false)).IsSuccess);
     }
 
     // ========== Llamada (solo presencial) ==========

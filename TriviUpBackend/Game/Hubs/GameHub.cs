@@ -412,6 +412,21 @@ public class GameHub : Hub
     }
 
     /// <summary>
+    /// Modo presencial: el anfitrión muestra la siguiente respuesta (o todas) de la pregunta en curso.
+    /// </summary>
+    public async Task RevealAnswers(string roomCode, long questionId, bool all)
+    {
+        var userId = GetAuthenticatedUserId();
+
+        var result = await _gameService.RevealAnswersAsync(roomCode, userId, questionId, all);
+        if (result.IsFailure)
+        {
+            _logger.LogWarning("Failed to reveal answers in room {RoomCode} by {UserId}: {Error}", roomCode, userId, result.Error);
+            throw new HubException(result.Error);
+        }
+    }
+
+    /// <summary>
     /// Modo presencial: el anfitrión quita el cartel de la Llamada.
     /// </summary>
     public async Task DismissCall(string roomCode, long questionId)

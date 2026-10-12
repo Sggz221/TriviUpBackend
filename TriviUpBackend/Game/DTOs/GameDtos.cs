@@ -229,7 +229,9 @@ public record TurnStartedDto(
     /// <summary>Pulsador a la espera de que el anfitrión empiece la cuenta atrás de verdad (nadie puede pulsar).</summary>
     bool BuzzerWaitingForHost = false,
     /// <summary>Tiro de la tanda de penaltis: estado de la tanda (null en una pregunta normal).</summary>
-    PenaltyStateDto? Penalty = null
+    PenaltyStateDto? Penalty = null,
+    /// <summary>Presencial: respuestas que ya ha mostrado el anfitrión (null = todas).</summary>
+    int? RevealedAnswers = null
 );
 
 /// <summary>Nota de la melodía de la ocarina: botón 0-4 y figura (Semicorchea, Corchea, Negra, Blanca).</summary>
@@ -293,6 +295,12 @@ public record BuzzerWonDto(
 /// <paramref name="TimeLimit"/> son los segundos para pulsar una vez abierto.
 /// </summary>
 public record BuzzerCountdownDto(long QuestionId, bool Fake, int CountdownMs, int TimeLimit);
+
+/// <summary>
+/// Modo presencial: el anfitrión ha mostrado respuestas. <paramref name="RevealedAnswers"/> null = ya se ven todas
+/// (y desde ahí corre el tiempo: <paramref name="TimeLimit"/> segundos, 0 = sin tiempo o lo lanza el pulsador).
+/// </summary>
+public record AnswersRevealedDto(long QuestionId, int? RevealedAnswers, int TimeLimit);
 
 /// <summary>
 /// Modo presencial: el anfitrión quitó el cartel de la Llamada.

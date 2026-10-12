@@ -355,6 +355,7 @@ public class GameServiceTiebreakTests
         var roomCode = await LastQuestionWithScoresAsync(GameMode.Presencial, 100, 100);
         var s = await SessionAsync(roomCode);
         var q = Current(s);
+        Assert.True((await _service.RevealAnswersAsync(roomCode, Owner, q.Id, all: true)).IsSuccess);
         Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, q.Id, q.Respuestas.FindIndex(r => !r.EsCorrecta))).IsSuccess);
         Assert.True((await _service.ConfirmAnswerAsync(roomCode, Owner, q.Id)).IsSuccess);
         Assert.True((await _service.NextQuestionAsync(roomCode, Owner)).IsSuccess);
@@ -362,6 +363,7 @@ public class GameServiceTiebreakTests
 
         s = await SessionAsync(roomCode);
         q = Current(s);
+        Assert.True((await _service.RevealAnswersAsync(roomCode, Owner, q.Id, all: true)).IsSuccess);
         Assert.True((await _service.MarkAnswerAsync(roomCode, Owner, q.Id, q.Respuestas.FindIndex(r => r.EsCorrecta))).IsSuccess);
         var kick = await _service.ConfirmAnswerAsync(roomCode, Owner, q.Id);
 

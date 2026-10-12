@@ -107,6 +107,12 @@ public sealed class GameSessionDocument
     /// <summary>Lo que le quedaba a la cuenta atrás del pulsador al pausar (se reanuda desde ahí).</summary>
     public int? PausedBuzzerLockMs { get; set; }
 
+    /// <summary>
+    /// Presencial: cuántas respuestas ha mostrado ya el anfitrión (sale primero la pregunta y él las va revelando).
+    /// null = se ven todas (o no aplica: modo online, colores, ocarina).
+    /// </summary>
+    public int? RevealedAnswers { get; set; }
+
     /// <summary>Pregunta sin turno a la espera de ganador (pulsador, colores u ocarina abiertos).</summary>
     public bool IsWaitingForWinner => BuzzerOpen || ColorOpen || OcarinaOpen;
 
@@ -143,6 +149,7 @@ public sealed class GameSessionDocument
         OcarinaListenUntilUnixMs = null;
         BuzzerOpensAtUnixMs = null;
         PausedBuzzerLockMs = null;
+        RevealedAnswers = null;
         MarkedAnswerIndex = null;
         AwaitingNextQuestion = false;
         LastTurnResult = null;
