@@ -16,9 +16,10 @@ public class BancoPreguntaRepository(Context context) : IBancoPreguntaRepository
             .Where(p => p.CreatorId == creatorId && ids.Contains(p.Id))
             .ToListAsync();
 
-    public async Task<List<long>> FindIdsAsync(long creatorId, long? categoriaId, string? dificultad)
+    public async Task<List<long>> FindIdsAsync(long creatorId, long? categoriaId, string? dificultad, string tipo)
     {
-        var query = context.BancoPreguntas.Where(p => p.CreatorId == creatorId);
+        var tipoNormalizado = TiposPregunta.NormalizarONormal(tipo);
+        var query = context.BancoPreguntas.Where(p => p.CreatorId == creatorId && p.Tipo == tipoNormalizado);
         if (categoriaId.HasValue)
         {
             query = query.Where(p => p.CategoriaId == categoriaId.Value);
@@ -34,7 +35,8 @@ public class BancoPreguntaRepository(Context context) : IBancoPreguntaRepository
     }
 
     public async Task<(List<BancoPregunta> Items, int Total)> FindByCreatorAsync(
-        long creatorId, string? search, long? categoriaId, bool sinCategoria, string? dificultad, int page, int pageSize)
+        long creatorId, string? search, long? categoriaId, bool sinCategoria, string? dificultad, string? tipo,
+        int page, int pageSize)
     {
         var query = context.BancoPreguntas.Include(p => p.Categoria).Where(p => p.CreatorId == creatorId);
 
@@ -58,6 +60,12 @@ public class BancoPreguntaRepository(Context context) : IBancoPreguntaRepository
         {
             var normalizada = Dificultades.Normalizar(dificultad);
             query = query.Where(p => p.Dificultad == normalizada);
+        }
+
+        if (!string.IsNullOrWhiteSpace(tipo))
+        {
+            var tipoNormalizado = TiposPregunta.NormalizarONormal(tipo);
+            query = query.Where(p => p.Tipo == tipoNormalizado);
         }
 
         var total = await query.CountAsync();

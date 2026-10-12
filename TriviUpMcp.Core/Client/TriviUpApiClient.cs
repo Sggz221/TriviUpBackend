@@ -72,13 +72,15 @@ public class TriviUpApiClient(HttpClient httpClient, AuthSessionState session)
     }
 
     public async Task<BancoPreguntaListResponse> ListPreguntasAsync(
-        string? q, long? categoriaId, bool sinCategoria, string? dificultad, int page, int pageSize, CancellationToken ct)
+        string? q, long? categoriaId, bool sinCategoria, string? dificultad, int page, int pageSize, CancellationToken ct,
+        string? tipo = null)
     {
         var query = new List<string>();
         if (!string.IsNullOrWhiteSpace(q)) query.Add($"q={Uri.EscapeDataString(q)}");
         if (categoriaId.HasValue) query.Add($"categoriaId={categoriaId.Value}");
         if (sinCategoria) query.Add("sinCategoria=true");
         if (!string.IsNullOrWhiteSpace(dificultad)) query.Add($"dificultad={Uri.EscapeDataString(dificultad)}");
+        if (!string.IsNullOrWhiteSpace(tipo)) query.Add($"tipo={Uri.EscapeDataString(tipo)}");
         query.Add($"page={page}");
         query.Add($"pageSize={pageSize}");
 

@@ -39,6 +39,10 @@ public static class TiposPregunta
         return normalizado is null || Todos.Contains(normalizado);
     }
 
+    /// <summary>Mensaje de error para un tipo que no es ninguno de los conocidos.</summary>
+    public static string MensajeNoValido(string? valor) =>
+        $"Tipo de pregunta no válido: \"{valor}\". Usa {string.Join(", ", Todos.SkipLast(1))} u {Todos[^1]}.";
+
     /// <summary>Normaliza y convierte en normal lo que no sea un tipo conocido (para borradores, que no bloquean).</summary>
     public static string NormalizarONormal(string? valor)
     {

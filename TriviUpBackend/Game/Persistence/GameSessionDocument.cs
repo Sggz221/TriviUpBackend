@@ -1,3 +1,4 @@
+using TriviUpBackend.Cuestionarios.Entities;
 using TriviUpBackend.Game.DTOs;
 using TriviUpBackend.Game.Models;
 
@@ -271,6 +272,11 @@ public sealed class PoolSpecDocument
     public List<long>? CandidateIds { get; set; }
     public long? CategoriaId { get; set; }
     public string? Dificultad { get; set; }
+
+    /// <summary>De <see cref="Cantidad"/>, cuántas son de cada tipo especial (el resto son normales).</summary>
+    public int Pulsador { get; set; }
+    public int Colores { get; set; }
+    public int Ocarina { get; set; }
 }
 
 public sealed class QuestionSnapshot
@@ -308,6 +314,20 @@ public sealed class QuestionSnapshot
 
     /// <summary>Pregunta sin turno (pulsador, colores u ocarina).</summary>
     public bool SinTurno => EsPulsador || EsColores || EsOcarina;
+
+    /// <summary>Tipo de la pregunta (ver <see cref="TiposPregunta"/>) según sus marcas.</summary>
+    public string Tipo => EsPulsador ? TiposPregunta.Pulsador
+        : EsColores ? TiposPregunta.Colores
+        : EsOcarina ? TiposPregunta.Ocarina
+        : TiposPregunta.Normal;
+
+    /// <summary>Marca la pregunta con su tipo (un tipo desconocido la deja normal).</summary>
+    public void SetTipo(string? tipo)
+    {
+        EsPulsador = tipo == TiposPregunta.Pulsador;
+        EsColores = tipo == TiposPregunta.Colores;
+        EsOcarina = tipo == TiposPregunta.Ocarina;
+    }
     public List<AnswerSnapshot> Respuestas { get; set; } = new();
 }
 

@@ -9,7 +9,7 @@ using TriviUpBackend.Errors;
 namespace TriviUpBackend.Controllers;
 
 /// <summary>
-/// Banco personal de preguntas: preguntas del usuario sin cuestionario, con categoría y dificultad.
+/// Banco personal de preguntas: preguntas del usuario sin cuestionario, con categoría, dificultad y tipo.
 /// </summary>
 [ApiController]
 [Route("api/banco-preguntas")]
@@ -25,13 +25,14 @@ public class BancoPreguntasController(IBancoPreguntaService service) : Controlle
         [FromQuery] long? categoriaId,
         [FromQuery] bool sinCategoria = false,
         [FromQuery] string? dificultad = null,
+        [FromQuery] string? tipo = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized(new { message = "Usuario no autenticado" });
 
-        var result = await service.ListAsync(userId.Value, q, categoriaId, sinCategoria, dificultad, page, pageSize);
+        var result = await service.ListAsync(userId.Value, q, categoriaId, sinCategoria, dificultad, page, pageSize, tipo);
         return result.Match(Ok, HandleError);
     }
 

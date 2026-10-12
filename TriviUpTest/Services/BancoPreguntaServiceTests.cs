@@ -29,10 +29,12 @@ public class BancoPreguntaServiceTests : IDisposable
     public void Dispose() => _context.Dispose();
 
     private static BancoPreguntaRequest Request(
-        string enunciado = "¿Capital de Francia?", string? dificultad = null, long? categoriaId = null, string? categoriaNombre = null) => new()
+        string enunciado = "¿Capital de Francia?", string? dificultad = null, long? categoriaId = null, string? categoriaNombre = null,
+        string? tipo = null) => new()
     {
         Enunciado = enunciado,
         Dificultad = dificultad,
+        Tipo = tipo,
         CategoriaId = categoriaId,
         CategoriaNombre = categoriaNombre,
         Respuestas =
@@ -57,6 +59,38 @@ public class BancoPreguntaServiceTests : IDisposable
         Assert.True(result.Value.Respuestas[0].EsCorrecta);
         Assert.Null(result.Value.CategoriaId);
         Assert.Null(result.Value.Dificultad);
+        Assert.Equal("normal", result.Value.Tipo);
+    }
+
+    [Fact]
+    public async Task CreateAsync_SpecialType_IsStoredNormalized_AndCanBeChanged()
+    {
+        var created = await _service.CreateAsync(Request(tipo: " Ocarina "), userId: 1);
+        Assert.Equal("ocarina", created.Value.Tipo);
+
+        var updated = await _service.UpdateAsync(created.Value.Id, Request(tipo: "pulsador"), userId: 1);
+        Assert.Equal("pulsador", updated.Value.Tipo);
+    }
+
+    [Fact]
+    public async Task CreateAsync_UnknownType_ReturnsValidationError()
+    {
+        var result = await _service.CreateAsync(Request(tipo: "karaoke"), userId: 1);
+
+        Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task ListAsync_FiltersByType()
+    {
+        await _service.CreateAsync(Request("Normal"), userId: 1);
+        await _service.CreateAsync(Request("Color", tipo: "colores"), userId: 1);
+
+        var colores = await _service.ListAsync(1, null, null, false, null, 1, 20, tipo: "colores");
+
+        Assert.Equal(["Color"], colores.Value.Preguntas.Select(p => p.Enunciado));
+        Assert.Equal(2, (await _service.ListAsync(1, null, null, false, null, 1, 20)).Value.TotalCount);
+        Assert.IsType<QuizValidationError>((await _service.ListAsync(1, null, null, false, null, 1, 20, tipo: "rara")).Error);
     }
 
     [Theory]

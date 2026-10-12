@@ -31,9 +31,9 @@ public class QuestionPoolTests
 
     public QuestionPoolTests()
     {
-        _bancoRepo.Setup(r => r.FindIdsAsync(It.IsAny<long>(), It.IsAny<long?>(), It.IsAny<string?>()))
-            .ReturnsAsync((long creator, long? categoria, string? dificultad) => _banco
-                .Where(p => p.CreatorId == creator &&
+        _bancoRepo.Setup(r => r.FindIdsAsync(It.IsAny<long>(), It.IsAny<long?>(), It.IsAny<string?>(), It.IsAny<string>()))
+            .ReturnsAsync((long creator, long? categoria, string? dificultad, string tipo) => _banco
+                .Where(p => p.CreatorId == creator && p.Tipo == tipo &&
                             (categoria == null || p.CategoriaId == categoria) &&
                             (dificultad == null || p.Dificultad == dificultad))
                 .Select(p => p.Id).ToList());
@@ -42,11 +42,12 @@ public class QuestionPoolTests
                 _banco.Where(p => p.CreatorId == creator && ids.Contains(p.Id)).ToList());
     }
 
-    private BancoPregunta Banco(long id, long? categoria = null, string? dificultad = null, long creator = Autor)
+    private BancoPregunta Banco(
+        long id, long? categoria = null, string? dificultad = null, long creator = Autor, string tipo = TiposPregunta.Normal)
     {
         var p = new BancoPregunta
         {
-            Id = id, CreatorId = creator, Enunciado = $"Banco {id}", CategoriaId = categoria, Dificultad = dificultad,
+            Id = id, CreatorId = creator, Enunciado = $"Banco {id}", CategoriaId = categoria, Dificultad = dificultad, Tipo = tipo,
             Respuestas = [new BancoRespuesta { Texto = "Sí", EsCorrecta = true }, new BancoRespuesta { Texto = "No" }]
         };
         _banco.Add(p);
@@ -63,6 +64,10 @@ public class QuestionPoolTests
         FaseNumero = fase, Cantidad = cantidad, Origen = OrigenesPool.Manual,
         Preguntas = ids.Select(id => new FasePoolPregunta { Id = id, Enunciado = $"Banco {id}" }).ToList()
     };
+
+    /// <summary>Pool que, de sus preguntas, saca estas de cada tipo especial.</summary>
+    private static FasePool ConEspeciales(FasePool pool, int pulsador = 0, int colores = 0, int ocarina = 0) =>
+        pool with { Pulsador = pulsador, Colores = colores, Ocarina = ocarina };
 
     private static Quiz QuizCon(params FasePool[] pools) => new() { Id = 7, CreatorId = Autor, Nombre = "Q", Pools = pools.ToList() };
 
@@ -87,6 +92,28 @@ public class QuestionPoolTests
         Banco(4, categoria: 10, dificultad: "facil", creator: 99);
 
         Assert.Equal([1L], await DrawAllAsync(Spec(Filtros(1, 10, categoria: 10, dificultad: "facil"))));
+    }
+
+    [Fact]
+    public async Task Draw_ByType_OnlyQuestionsOfThatType_AndNormalDrawsNeverTakeSpecials()
+    {
+        Banco(1);
+        Banco(2, tipo: TiposPregunta.Pulsador);
+        Banco(3, tipo: TiposPregunta.Ocarina);
+        var spec = Spec(Filtros(1, 10));
+
+        Assert.Equal([1L], await DrawAllAsync(spec));
+        var used = new List<long>();
+        Assert.Equal(2L, (await BankDrawer.DrawAsync(_bancoRepo.Object, Autor, spec, used, new Random(1), TiposPregunta.Pulsador))!.Id);
+        Assert.Null(await BankDrawer.DrawAsync(_bancoRepo.Object, Autor, spec, used, new Random(1), TiposPregunta.Colores));
+    }
+
+    [Fact]
+    public void Normalizar_ClampsSpecialCountsToTheTotal()
+    {
+        var pool = OrigenesPool.Normalizar(ConEspeciales(Filtros(1, 3), pulsador: 2, colores: 5, ocarina: -1));
+
+        Assert.Equal((3, 2, 1, 0, 0), (pool.Cantidad, pool.Pulsador, pool.Colores, pool.Ocarina, pool.Normales));
     }
 
     [Fact]
@@ -150,6 +177,19 @@ public class QuestionPoolTests
         Assert.Single(q.Respuestas, r => r.EsCorrecta);
     }
 
+    [Fact]
+    public void Fill_PlaysTheQuestionAsItsBankType()
+    {
+        var banco = Banco(1, tipo: TiposPregunta.Colores);
+        var spec = Spec(ConEspeciales(Filtros(1, 1), colores: 1));
+
+        var q = BankDrawer.Fill(BankDrawer.Slot(spec, 0, TiposPregunta.Colores), banco, new Random(1));
+
+        Assert.True(q.EsColores);
+        Assert.True(q.SinTurno);
+        Assert.Equal(TiposPregunta.Colores, q.Tipo);
+    }
+
     // ---------- validación y guardado ----------
 
     private static QuizService NewQuizService(Mock<IQuizRepository> repo) =>
@@ -205,7 +245,10 @@ public class QuestionPoolTests
         { [Filtros(1, 3, dificultad: "imposible")], [] }, // dificultad desconocida
         { [Manual(1, 3)], [] },                           // manual sin preguntas elegidas
         { [Manual(1, 3, 1, 2)], [] },                     // pide más de las elegidas
-        { [Filtros(1, 3) with { Origen = "otro" }], [] }  // origen desconocido
+        { [Filtros(1, 3) with { Origen = "otro" }], [] }, // origen desconocido
+        { [ConEspeciales(Filtros(1, 2), pulsador: 2, ocarina: 1)], [] }, // más especiales que preguntas
+        { [ConEspeciales(Filtros(1, 2), colores: -1)], [] },           // cantidad negativa
+        { [ConEspeciales(Manual(1, 2, 1, 2), pulsador: 1)], [] }       // ninguna elegida es de pulsador
     };
 
     [Theory]
@@ -216,6 +259,24 @@ public class QuestionPoolTests
 
         Assert.True(result.IsFailure);
         Assert.IsType<QuizValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task Create_ManualPoolWithSpecials_TakesTheTypesFromTheBank()
+    {
+        Banco(1);
+        Banco(2, tipo: TiposPregunta.Pulsador);
+        Banco(3, tipo: TiposPregunta.Ocarina);
+        Quiz? saved = null;
+        var service = new QuizService(QuizRepo(q => saved = q).Object, new Mock<ILogger<QuizService>>().Object,
+            new Mock<ICacheService>().Object, _bancoRepo.Object);
+
+        var result = await service.CreateAsync(Request([], ConEspeciales(Manual(1, 3, 1, 2, 3), pulsador: 1, ocarina: 1)), Autor);
+
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.ToString() : null);
+        var pool = Assert.Single(saved!.Pools);
+        Assert.Equal((1, 1, 1), (pool.Normales, pool.Pulsador, pool.Ocarina));
+        Assert.Equal([TiposPregunta.Normal, TiposPregunta.Pulsador, TiposPregunta.Ocarina], pool.Preguntas.Select(p => p.Tipo));
     }
 
     [Fact]
@@ -279,6 +340,38 @@ public class QuestionPoolTests
         Assert.True(session.Questions[1].PendingDraw);
         Assert.Empty(session.UsedBankIds);
         _bancoRepo.Verify(r => r.FindByIdsAsync(It.IsAny<long>(), It.IsAny<IReadOnlyCollection<long>>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task StartGame_ReservesSlotsPerType_AndSpecialSlotsAreNeverTrimmed()
+    {
+        for (var i = 1; i <= 3; i++) Banco(i);
+        Banco(4, tipo: TiposPregunta.Pulsador);
+        Banco(5, tipo: TiposPregunta.Ocarina);
+        // Pide 2 pulsadores pero el banco solo tiene 1: sale 1
+        var quiz = QuizCon(ConEspeciales(Filtros(1, 6), pulsador: 2, ocarina: 1));
+
+        var (_, store, room) = await StartAsync(quiz, [], players: 2);
+
+        var session = (await store.GetAsync(room))!;
+        // 3 normales y 2 jugadores: se recorta una normal; las especiales (sin turno) se quedan
+        Assert.Equal(2, session.Questions.Count(q => !q.SinTurno));
+        Assert.Equal([TiposPregunta.Ocarina, TiposPregunta.Pulsador],
+            session.Questions.Where(q => q.SinTurno).Select(q => q.Tipo).Order());
+    }
+
+    [Fact]
+    public async Task SpecialPoolSlot_IsDrawnFromTheBankQuestionsOfItsType_AndPlayedAsSuch()
+    {
+        Banco(1);
+        Banco(2, tipo: TiposPregunta.Pulsador);
+        var (_, store, room) = await StartAsync(QuizCon(ConEspeciales(Filtros(1, 1), pulsador: 1)), []);
+
+        var current = Current((await store.GetAsync(room))!);
+
+        Assert.Equal(-2L, current.Id);
+        Assert.True(current.EsPulsador);
+        Assert.False(current.PendingDraw);
     }
 
     [Fact]
@@ -347,6 +440,23 @@ public class QuestionPoolTests
         await AnswerAsync(service, store, room);
         var last = Current((await store.GetAsync(room))!).Id;
         Assert.DoesNotContain(last, new[] { old, nueva });
+    }
+
+    [Fact]
+    public async Task CambiarPregunta_NeverSwapsInASpecialQuestion()
+    {
+        Banco(1);
+        Banco(2);
+        Banco(3, tipo: TiposPregunta.Pulsador);
+        var (service, store, room) = await StartAsync(QuizCon(Filtros(1, 1)), []);
+        var s = (await store.GetAsync(room))!;
+
+        var result = await service.UseComodinAsync(room, s.GetCurrentPlayerId()!.Value, ComodinTipo.CambiarPregunta, Current(s).Id);
+
+        Assert.True(result.IsSuccess);
+        var nueva = Current((await store.GetAsync(room))!);
+        Assert.NotEqual(-3L, nueva.Id);
+        Assert.False(nueva.SinTurno);
     }
 
     [Fact]

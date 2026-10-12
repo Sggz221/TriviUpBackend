@@ -13,12 +13,16 @@ public interface IBancoPreguntaRepository
     /// <summary>Preguntas del usuario con los ids indicados (con su categoría).</summary>
     Task<List<BancoPregunta>> FindByIdsAsync(long creatorId, IReadOnlyCollection<long> ids);
 
-    /// <summary>Ids de las preguntas del usuario que cumplen los filtros (null = cualquiera).</summary>
-    Task<List<long>> FindIdsAsync(long creatorId, long? categoriaId, string? dificultad);
+    /// <summary>
+    /// Ids de las preguntas del usuario de un tipo (ver <see cref="TiposPregunta"/>) que cumplen los filtros
+    /// (null = cualquiera).
+    /// </summary>
+    Task<List<long>> FindIdsAsync(long creatorId, long? categoriaId, string? dificultad, string tipo);
 
-    /// <summary>Página de preguntas del usuario, filtrable por texto, categoría (o ninguna) y dificultad.</summary>
+    /// <summary>Página de preguntas del usuario, filtrable por texto, categoría (o ninguna), dificultad y tipo.</summary>
     Task<(List<BancoPregunta> Items, int Total)> FindByCreatorAsync(
-        long creatorId, string? search, long? categoriaId, bool sinCategoria, string? dificultad, int page, int pageSize);
+        long creatorId, string? search, long? categoriaId, bool sinCategoria, string? dificultad, string? tipo,
+        int page, int pageSize);
 
     Task<BancoPregunta> AddAsync(BancoPregunta pregunta);
     Task<BancoPregunta> UpdateAsync(BancoPregunta pregunta);

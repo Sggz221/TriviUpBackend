@@ -14,17 +14,24 @@ public class BancoPreguntaService(
 ) : IBancoPreguntaService
 {
     public async Task<Result<BancoPreguntaListResponse, QuizError>> ListAsync(
-        long userId, string? search, long? categoriaId, bool sinCategoria, string? dificultad, int page, int pageSize)
+        long userId, string? search, long? categoriaId, bool sinCategoria, string? dificultad, int page, int pageSize,
+        string? tipo = null)
     {
         if (!Dificultades.EsValida(dificultad))
         {
             return Result.Failure<BancoPreguntaListResponse, QuizError>(new QuizValidationError("Dificultad no válida"));
         }
 
+        if (!TiposPregunta.EsValido(tipo))
+        {
+            return Result.Failure<BancoPreguntaListResponse, QuizError>(new QuizValidationError(TiposPregunta.MensajeNoValido(tipo)));
+        }
+
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var (items, total) = await repository.FindByCreatorAsync(userId, search, categoriaId, sinCategoria, dificultad, page, pageSize);
+        var (items, total) = await repository.FindByCreatorAsync(
+            userId, search, categoriaId, sinCategoria, dificultad, tipo, page, pageSize);
         return Result.Success<BancoPreguntaListResponse, QuizError>(
             new BancoPreguntaListResponse(items.Select(BancoPreguntaResponse.FromEntity).ToList(), total));
     }
@@ -172,6 +179,7 @@ public class BancoPreguntaService(
             .Select(r => new BancoRespuesta { Texto = r.Texto.Trim(), EsCorrecta = r.EsCorrecta })
             .ToList();
         pregunta.Dificultad = Dificultades.Normalizar(request.Dificultad);
+        pregunta.Tipo = TiposPregunta.NormalizarONormal(request.Tipo);
         pregunta.CategoriaId = categoria?.Id;
         pregunta.Categoria = categoria;
     }
@@ -197,6 +205,11 @@ public class BancoPreguntaService(
         if (!Dificultades.EsValida(request.Dificultad))
         {
             return UnitResult.Failure<QuizError>(new QuizValidationError("Dificultad no válida. Usa facil, media o dificil."));
+        }
+
+        if (!TiposPregunta.EsValido(request.Tipo))
+        {
+            return UnitResult.Failure<QuizError>(new QuizValidationError(TiposPregunta.MensajeNoValido(request.Tipo)));
         }
 
         return UnitResult.Success<QuizError>();

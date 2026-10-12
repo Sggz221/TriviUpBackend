@@ -27,6 +27,10 @@ public record BancoPreguntaRequest
     [MaxLength(10, ErrorMessage = "Dificultad no válida")]
     public string? Dificultad { get; init; }
 
+    /// <summary>Tipo: normal (por defecto), pulsador, colores u ocarina.</summary>
+    [MaxLength(20, ErrorMessage = "Tipo de pregunta no válido")]
+    public string? Tipo { get; init; }
+
     /// <summary>Categoría existente del usuario (tiene prioridad sobre <see cref="CategoriaNombre"/>).</summary>
     public long? CategoriaId { get; init; }
 
@@ -66,6 +70,9 @@ public record BancoPreguntaResponse
     [property: JsonPropertyName("dificultad")]
     public string? Dificultad { get; init; }
 
+    [property: JsonPropertyName("tipo")]
+    public string Tipo { get; init; } = TiposPregunta.Normal;
+
     [property: JsonPropertyName("categoriaId")]
     public long? CategoriaId { get; init; }
 
@@ -86,6 +93,7 @@ public record BancoPreguntaResponse
         Curiosidad = p.Curiosidad,
         Respuestas = p.Respuestas.Select(r => new BancoRespuestaResponse { Texto = r.Texto, EsCorrecta = r.EsCorrecta }).ToList(),
         Dificultad = Dificultades.NormalizarOSinClasificar(p.Dificultad),
+        Tipo = TiposPregunta.NormalizarONormal(p.Tipo),
         CategoriaId = p.CategoriaId,
         CategoriaNombre = p.Categoria?.Nombre,
         FechaCreacion = p.CreatedAt,

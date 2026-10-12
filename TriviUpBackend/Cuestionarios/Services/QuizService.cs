@@ -15,7 +15,8 @@ namespace TriviUpBackend.Cuestionarios.Services;
 public class QuizService(
     IQuizRepository quizRepository,
     ILogger<QuizService> logger,
-    ICacheService cacheService
+    ICacheService cacheService,
+    IBancoPreguntaRepository? bancoRepository = null
 ) : IQuizService
 {
     private static readonly Random _random = new();
@@ -26,6 +27,7 @@ public class QuizService(
     public async Task<Result<QuizResponse, QuizError>> CreateAsync(CreateQuizRequest request, long creatorId)
     {
         logger.LogInformation("Creando quiz: {Nombre} por usuario {CreatorId}", request.Nombre, creatorId);
+        request = request with { Pools = await ConTiposDelBancoAsync(request.Pools, creatorId) };
 
         var validationResult = request.EsBorrador
             ? UnitResult.Success<QuizError>()
@@ -209,6 +211,7 @@ public class QuizService(
         }
 
         var yaPublicado = quiz.VersionPublicada > 0;
+        request = request with { Pools = await ConTiposDelBancoAsync(request.Pools, quiz.CreatorId) };
 
         if (request.EsBorrador)
         {
@@ -527,6 +530,26 @@ public class QuizService(
         Pools = quiz.Pools
     };
 
+    /// <summary>
+    /// Copia en las preguntas elegidas a mano de cada pool el tipo que tienen en el banco del autor (el que
+    /// manda al jugarlas), para validar las cantidades por tipo y mostrarlo en el builder.
+    /// </summary>
+    private async Task<List<FasePool>> ConTiposDelBancoAsync(List<FasePool>? pools, long creatorId)
+    {
+        pools ??= new();
+        var ids = pools.SelectMany(p => p.Preguntas).Select(p => p.Id).Where(id => id > 0).Distinct().ToList();
+        if (bancoRepository is null || ids.Count == 0) return pools;
+
+        var tipos = (await bancoRepository.FindByIdsAsync(creatorId, ids))
+            .ToDictionary(p => p.Id, p => TiposPregunta.NormalizarONormal(p.Tipo));
+        return pools.Select(pool => pool with
+        {
+            Preguntas = pool.Preguntas
+                .Select(p => tipos.TryGetValue(p.Id, out var tipo) ? p with { Tipo = tipo } : p)
+                .ToList()
+        }).ToList();
+    }
+
     private static List<FasePool> NormalizePools(IEnumerable<FasePool>? pools) =>
         (pools ?? []).Select(OrigenesPool.Normalizar).OrderBy(p => p.FaseNumero).ToList();
 
@@ -701,8 +724,7 @@ public class QuizService(
         var invalido = tipos.FirstOrDefault(t => !TiposPregunta.EsValido(t));
         return invalido is null
             ? UnitResult.Success<QuizError>()
-            : UnitResult.Failure<QuizError>(new QuizValidationError(
-                $"Tipo de pregunta no válido: \"{invalido}\". Usa normal o pulsador."));
+            : UnitResult.Failure<QuizError>(new QuizValidationError(TiposPregunta.MensajeNoValido(invalido)));
     }
 
     private static UnitResult<QuizError> ValidateDificultades(IEnumerable<string?> dificultades)
@@ -735,6 +757,18 @@ public class QuizService(
                     $"{fase} debe sacar entre 1 y {OrigenesPool.CantidadMaxima} preguntas del banco"));
             }
 
+            if (pool.Pulsador < 0 || pool.Colores < 0 || pool.Ocarina < 0)
+            {
+                return UnitResult.Failure<QuizError>(new QuizValidationError(
+                    $"{fase} no puede sacar un número negativo de preguntas especiales"));
+            }
+
+            if (pool.Pulsador + pool.Colores + pool.Ocarina > pool.Cantidad)
+            {
+                return UnitResult.Failure<QuizError>(new QuizValidationError(
+                    $"{fase} saca {pool.Cantidad} preguntas pero pide {pool.Pulsador + pool.Colores + pool.Ocarina} especiales"));
+            }
+
             if (!OrigenesPool.EsValido(pool.Origen))
             {
                 return UnitResult.Failure<QuizError>(new QuizValidationError(
@@ -754,6 +788,20 @@ public class QuizService(
                 {
                     return UnitResult.Failure<QuizError>(new QuizValidationError(
                         $"{fase} saca {pool.Cantidad} preguntas pero solo tiene {elegidas} elegidas"));
+                }
+
+                // Cada tipo sale solo de las elegidas de ese tipo
+                var porTipo = pool.Preguntas.Where(p => p.Id > 0).DistinctBy(p => p.Id)
+                    .GroupBy(p => TiposPregunta.NormalizarONormal(p.Tipo))
+                    .ToDictionary(g => g.Key, g => g.Count());
+                foreach (var (tipo, pedidas) in pool.CantidadesPorTipo())
+                {
+                    var deEseTipo = porTipo.GetValueOrDefault(tipo);
+                    if (pedidas > deEseTipo)
+                    {
+                        return UnitResult.Failure<QuizError>(new QuizValidationError(
+                            $"{fase} saca {pedidas} de tipo {tipo} pero solo tiene {deEseTipo} elegidas de ese tipo"));
+                    }
                 }
             }
             else if (!Dificultades.EsValida(pool.Dificultad))

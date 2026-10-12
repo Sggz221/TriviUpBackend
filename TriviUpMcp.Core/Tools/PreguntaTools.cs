@@ -15,7 +15,7 @@ public record RespuestaInput(
 public class PreguntaTools(TriviUpApiClient client)
 {
     [McpServerTool(Name = "listar_preguntas", ReadOnly = true)]
-    [Description("Lista las preguntas del banco personal del usuario autenticado, con filtros opcionales de búsqueda, categoría y dificultad.")]
+    [Description("Lista las preguntas del banco personal del usuario autenticado, con filtros opcionales de búsqueda, categoría, dificultad y tipo.")]
     public Task<string> ListarPreguntas(
         [Description("Texto a buscar en el enunciado (opcional)")] string? q = null,
         [Description("Filtra por id de categoría (opcional)")] long? categoriaId = null,
@@ -23,14 +23,15 @@ public class PreguntaTools(TriviUpApiClient client)
         [Description("Filtra por dificultad: facil, media o dificil (opcional)")] string? dificultad = null,
         [Description("Número de página (por defecto 1)")] int page = 1,
         [Description("Tamaño de página, máximo 100 (por defecto 20)")] int pageSize = 20,
+        [Description("Filtra por tipo: normal, pulsador, colores u ocarina (opcional)")] string? tipo = null,
         CancellationToken ct = default)
     {
         return ToolExecution.RunAsync(() => client.ListPreguntasAsync(
-            q, categoriaId, sinCategoria, dificultad, page <= 0 ? 1 : page, pageSize <= 0 ? 20 : pageSize, ct));
+            q, categoriaId, sinCategoria, dificultad, page <= 0 ? 1 : page, pageSize <= 0 ? 20 : pageSize, ct, tipo));
     }
 
     [McpServerTool(Name = "obtener_pregunta", ReadOnly = true)]
-    [Description("Obtiene el detalle completo de una pregunta del banco por su id (enunciado, respuestas, dificultad, categoría, curiosidad).")]
+    [Description("Obtiene el detalle completo de una pregunta del banco por su id (enunciado, respuestas, dificultad, tipo, categoría, curiosidad).")]
     public Task<string> ObtenerPregunta(
         [Description("Id de la pregunta")] long id,
         CancellationToken ct = default)
@@ -50,19 +51,20 @@ public class PreguntaTools(TriviUpApiClient client)
         [Description("Nombre de categoría: se reutiliza si ya existe o se crea nueva (opcional)")] string? categoriaNombre = null,
         [Description("URL de una imagen asociada a la pregunta (opcional)")] string? imagenUrl = null,
         [Description(CuriosidadDescription)] string? curiosidad = null,
+        [Description(TipoDescription)] string? tipo = null,
         CancellationToken ct = default)
     {
         return ToolExecution.RunAsync(async () =>
         {
             ValidateRespuestas(respuestas);
             var request = new BancoPreguntaRequest(
-                enunciado, ToBancoRespuestas(respuestas), imagenUrl, dificultad, categoriaId, categoriaNombre, curiosidad);
+                enunciado, ToBancoRespuestas(respuestas), imagenUrl, dificultad, categoriaId, categoriaNombre, curiosidad, tipo);
             return await client.CreatePreguntaAsync(request, ct);
         });
     }
 
     [McpServerTool(Name = "editar_pregunta")]
-    [Description("Reemplaza por completo una pregunta existente (enunciado, respuestas, dificultad, categoría y curiosidad: lo que se omita se borra). " +
+    [Description("Reemplaza por completo una pregunta existente (enunciado, respuestas, dificultad, tipo, categoría y curiosidad: lo que se omita se borra). " +
                  "Para cambiar un solo campo sin tocar el resto, usa mejor editar_dificultad_pregunta, editar_curiosidad_pregunta, anadir_respuesta o marcar_respuesta_correcta.")]
     public Task<string> EditarPregunta(
         [Description("Id de la pregunta a editar")] long id,
@@ -73,13 +75,14 @@ public class PreguntaTools(TriviUpApiClient client)
         [Description("Nombre de categoría: se reutiliza si ya existe o se crea nueva (opcional)")] string? categoriaNombre = null,
         [Description("URL de una imagen asociada a la pregunta (opcional)")] string? imagenUrl = null,
         [Description(CuriosidadDescription)] string? curiosidad = null,
+        [Description(TipoDescription)] string? tipo = null,
         CancellationToken ct = default)
     {
         return ToolExecution.RunAsync(async () =>
         {
             ValidateRespuestas(respuestas);
             var request = new BancoPreguntaRequest(
-                enunciado, ToBancoRespuestas(respuestas), imagenUrl, dificultad, categoriaId, categoriaNombre, curiosidad);
+                enunciado, ToBancoRespuestas(respuestas), imagenUrl, dificultad, categoriaId, categoriaNombre, curiosidad, tipo);
             return await client.UpdatePreguntaAsync(id, request, ct);
         });
     }
@@ -229,7 +232,13 @@ public class PreguntaTools(TriviUpApiClient client)
 
     /// <summary>Reconstruye el request de escritura a partir del estado actual, para operaciones read-modify-write.</summary>
     private static BancoPreguntaRequest RequestFromCurrent(BancoPreguntaResponse actual) => new(
-        actual.Enunciado, actual.Respuestas, actual.ImagenUrl, actual.Dificultad, actual.CategoriaId, actual.CategoriaNombre, actual.Curiosidad);
+        actual.Enunciado, actual.Respuestas, actual.ImagenUrl, actual.Dificultad, actual.CategoriaId, actual.CategoriaNombre, actual.Curiosidad,
+        actual.Tipo);
+
+    private const string TipoDescription =
+        "Tipo de pregunta (opcional, normal si se omite): normal (responde el jugador al que le toca), " +
+        "pulsador (se la lleva el primero en pulsar), colores (el que mejor imita un color) u ocarina (el primero en tocar una melodía). " +
+        "Las especiales también se pueden sacar del banco en las fases con pool.";
 
     private const string CuriosidadDescription =
         "Curiosidad o dato curioso sobre la pregunta (opcional, máx. 1000 caracteres). " +

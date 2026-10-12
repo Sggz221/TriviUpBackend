@@ -35,7 +35,8 @@ public record BancoPreguntaRequest(
     [property: JsonPropertyName("dificultad")] string? Dificultad = null,
     [property: JsonPropertyName("categoriaId")] long? CategoriaId = null,
     [property: JsonPropertyName("categoriaNombre")] string? CategoriaNombre = null,
-    [property: JsonPropertyName("curiosidad")] string? Curiosidad = null
+    [property: JsonPropertyName("curiosidad")] string? Curiosidad = null,
+    [property: JsonPropertyName("tipo")] string? Tipo = null
 );
 
 public record BancoPreguntaResponse(
@@ -48,7 +49,8 @@ public record BancoPreguntaResponse(
     [property: JsonPropertyName("categoriaNombre")] string? CategoriaNombre,
     [property: JsonPropertyName("fechaCreacion")] DateTime FechaCreacion,
     [property: JsonPropertyName("fechaActualizacion")] DateTime FechaActualizacion,
-    [property: JsonPropertyName("curiosidad")] string? Curiosidad = null
+    [property: JsonPropertyName("curiosidad")] string? Curiosidad = null,
+    [property: JsonPropertyName("tipo")] string? Tipo = null
 );
 
 public record BancoPreguntaListResponse(

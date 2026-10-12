@@ -30,27 +30,35 @@ public static class BankDrawer
             ? pool.Preguntas.Select(p => p.Id).Distinct().ToList()
             : null,
         CategoriaId = bancoDelAutor && pool.Origen == OrigenesPool.Filtros ? pool.CategoriaId : null,
-        Dificultad = pool.Origen == OrigenesPool.Filtros ? pool.Dificultad : null
+        Dificultad = pool.Origen == OrigenesPool.Filtros ? pool.Dificultad : null,
+        Pulsador = pool.Pulsador,
+        Colores = pool.Colores,
+        Ocarina = pool.Ocarina
     };
 
-    /// <summary>Ids del banco que cumplen las reglas del pool (null = cualquiera del banco) y aún no han salido.</summary>
+    /// <summary>
+    /// Ids del banco del tipo indicado que cumplen las reglas del pool (null = cualquiera del banco) y aún no han
+    /// salido.
+    /// </summary>
     public static async Task<List<long>> AvailableIdsAsync(
-        IBancoPreguntaRepository banco, long bancoOwnerId, PoolSpecDocument? spec, IReadOnlyCollection<long> used)
+        IBancoPreguntaRepository banco, long bancoOwnerId, PoolSpecDocument? spec, IReadOnlyCollection<long> used,
+        string tipo = TiposPregunta.Normal)
     {
-        var ids = await banco.FindIdsAsync(bancoOwnerId, spec?.CategoriaId, spec?.Dificultad);
+        var ids = await banco.FindIdsAsync(bancoOwnerId, spec?.CategoriaId, spec?.Dificultad, tipo);
         // Elegidas a mano: solo las que siguen en el banco (las borradas no cuentan)
         if (spec?.CandidateIds is { } elegidas) ids = ids.Intersect(elegidas).ToList();
         return ids.Where(id => !used.Contains(id)).Distinct().ToList();
     }
 
     /// <summary>
-    /// Una pregunta jugable al azar del banco que cumpla las reglas del pool y no haya salido en la partida, o null
-    /// si no queda ninguna. Solo se cargan de la base de datos las que hacen falta.
+    /// Una pregunta jugable al azar del banco, del tipo indicado, que cumpla las reglas del pool y no haya salido en
+    /// la partida, o null si no queda ninguna. Solo se cargan de la base de datos las que hacen falta.
     /// </summary>
     public static async Task<BancoPregunta?> DrawAsync(
-        IBancoPreguntaRepository banco, long bancoOwnerId, PoolSpecDocument? spec, IReadOnlyCollection<long> used, Random random)
+        IBancoPreguntaRepository banco, long bancoOwnerId, PoolSpecDocument? spec, IReadOnlyCollection<long> used,
+        Random random, string tipo = TiposPregunta.Normal)
     {
-        var orden = (await AvailableIdsAsync(banco, bancoOwnerId, spec, used)).OrderBy(_ => random.Next()).ToList();
+        var orden = (await AvailableIdsAsync(banco, bancoOwnerId, spec, used, tipo)).OrderBy(_ => random.Next()).ToList();
         for (var i = 0; i < orden.Count; i += LoadBatch)
         {
             var lote = orden.Skip(i).Take(LoadBatch).ToList();
@@ -72,9 +80,16 @@ public static class BankDrawer
 
     /// <summary>
     /// Rellena el hueco <paramref name="slot"/> (su fase y su pool se conservan) con la pregunta del banco, con las
-    /// respuestas barajadas.
+    /// respuestas barajadas. La pregunta se juega según su tipo en el banco.
     /// </summary>
-    public static QuestionSnapshot Fill(QuestionSnapshot slot, BancoPregunta p, Random random) => new()
+    public static QuestionSnapshot Fill(QuestionSnapshot slot, BancoPregunta p, Random random)
+    {
+        var question = Snapshot(slot, p, random);
+        question.SetTipo(TiposPregunta.NormalizarONormal(p.Tipo));
+        return question;
+    }
+
+    private static QuestionSnapshot Snapshot(QuestionSnapshot slot, BancoPregunta p, Random random) => new()
     {
         Id = -p.Id,
         Enunciado = p.Enunciado,
@@ -92,12 +107,27 @@ public static class BankDrawer
             .ToList()
     };
 
-    /// <summary>Hueco de una fase con pool: se rellena con una pregunta del banco cuando le toca jugarse.</summary>
-    public static QuestionSnapshot Slot(PoolSpecDocument spec, int poolIndex) => new()
+    /// <summary>
+    /// Hueco de una fase con pool: se rellena con una pregunta del banco de su tipo cuando le toca jugarse. Lleva ya
+    /// el tipo para que los turnos de la partida se repartan bien antes de sacar las preguntas.
+    /// </summary>
+    public static QuestionSnapshot Slot(PoolSpecDocument spec, int poolIndex, string tipo = TiposPregunta.Normal)
     {
-        FaseNumero = spec.FaseNumero,
-        FaseNombre = spec.FaseNombre,
-        FaseColor = spec.FaseColor,
-        PoolIndex = poolIndex
-    };
+        var slot = new QuestionSnapshot
+        {
+            FaseNumero = spec.FaseNumero,
+            FaseNombre = spec.FaseNombre,
+            FaseColor = spec.FaseColor,
+            PoolIndex = poolIndex
+        };
+        slot.SetTipo(tipo);
+        return slot;
+    }
+
+    /// <summary>Cuántas preguntas de cada tipo pide el pool (solo los tipos con alguna).</summary>
+    public static IEnumerable<(string Tipo, int Cantidad)> CantidadesPorTipo(PoolSpecDocument spec) =>
+        new FasePool
+        {
+            Cantidad = spec.Cantidad, Pulsador = spec.Pulsador, Colores = spec.Colores, Ocarina = spec.Ocarina
+        }.CantidadesPorTipo();
 }

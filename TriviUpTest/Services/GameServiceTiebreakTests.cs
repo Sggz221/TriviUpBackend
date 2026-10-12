@@ -57,8 +57,9 @@ public class GameServiceTiebreakTests
             }).ToList());
 
         var banco = new Mock<IBancoPreguntaRepository>();
-        banco.Setup(r => r.FindIdsAsync(It.IsAny<long>(), It.IsAny<long?>(), It.IsAny<string?>()))
-            .ReturnsAsync((long creator, long? _, string? _) => _banco.Where(p => p.CreatorId == creator).Select(p => p.Id).ToList());
+        banco.Setup(r => r.FindIdsAsync(It.IsAny<long>(), It.IsAny<long?>(), It.IsAny<string?>(), It.IsAny<string>()))
+            .ReturnsAsync((long creator, long? _, string? _, string tipo) =>
+                _banco.Where(p => p.CreatorId == creator && p.Tipo == tipo).Select(p => p.Id).ToList());
         banco.Setup(r => r.FindByIdsAsync(It.IsAny<long>(), It.IsAny<IReadOnlyCollection<long>>()))
             .ReturnsAsync((long creator, IReadOnlyCollection<long> ids) =>
                 _banco.Where(p => p.CreatorId == creator && ids.Contains(p.Id)).ToList());

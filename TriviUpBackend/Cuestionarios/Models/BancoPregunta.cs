@@ -46,6 +46,14 @@ public class BancoPregunta : ITimestamped
     [MaxLength(10)]
     public string? Dificultad { get; set; }
 
+    /// <summary>
+    /// Tipo de pregunta (ver <see cref="TiposPregunta"/>): normal, pulsador, colores u ocarina. Al jugarse, sea
+    /// fija o sacada de un pool, se juega según su tipo.
+    /// </summary>
+    [Required]
+    [MaxLength(20)]
+    public string Tipo { get; set; } = TiposPregunta.Normal;
+
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;

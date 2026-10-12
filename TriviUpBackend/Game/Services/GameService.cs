@@ -10,6 +10,7 @@ using TriviUpBackend.Game.Repositories;
 using BancoPregunta = TriviUpBackend.Cuestionarios.Entities.BancoPregunta;
 using Dificultades = TriviUpBackend.Cuestionarios.Entities.Dificultades;
 using Pregunta = TriviUpBackend.Cuestionarios.Entities.Pregunta;
+using TiposPregunta = TriviUpBackend.Cuestionarios.Entities.TiposPregunta;
 
 namespace TriviUpBackend.Game.Services;
 
@@ -398,12 +399,17 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 var bancoDelAutor = quiz.CreatorId == session.OwnerId;
                 foreach (var pool in quiz.Pools.OrderBy(p => p.FaseNumero))
                 {
+                    // Huecos de cada tipo (normales y especiales), hasta lo que dé el banco para ese tipo
                     var spec = BankDrawer.ToSpec(pool, bancoDelAutor);
-                    var disponibles = (await BankDrawer.AvailableIdsAsync(banco, session.OwnerId, spec, [])).Count;
-                    var huecos = Math.Min(pool.Cantidad, disponibles);
-                    if (huecos == 0) continue;
+                    var huecos = new List<string>();
+                    foreach (var (tipo, cantidad) in BankDrawer.CantidadesPorTipo(spec))
+                    {
+                        var disponibles = (await BankDrawer.AvailableIdsAsync(banco, session.OwnerId, spec, [], tipo)).Count;
+                        huecos.AddRange(Enumerable.Repeat(tipo, Math.Min(cantidad, disponibles)));
+                    }
+                    if (huecos.Count == 0) continue;
                     pools.Add(spec);
-                    for (var i = 0; i < huecos; i++) questions.Add(BankDrawer.Slot(spec, pools.Count - 1));
+                    questions.AddRange(huecos.Select(tipo => BankDrawer.Slot(spec, pools.Count - 1, tipo)));
                 }
             }
         }
@@ -914,7 +920,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         var current = session.Questions[index];
         var spec = current.PoolIndex is { } poolIndex ? session.Pools[poolIndex] : null;
 
-        var drawn = await DrawFromBankAsync(session, spec);
+        // La nueva es del mismo tipo que la cambiada
+        var drawn = await DrawFromBankAsync(session, spec, current.Tipo);
         if (drawn is not null)
         {
             session.Questions[index] = BankDrawer.Fill(current, drawn, Random.Shared);
@@ -940,7 +947,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         while (index < session.Questions.Count && session.Questions[index].PendingDraw)
         {
             var slot = session.Questions[index];
-            var drawn = await DrawFromBankAsync(session, session.Pools[slot.PoolIndex!.Value]);
+            var drawn = await DrawFromBankAsync(session, session.Pools[slot.PoolIndex!.Value], slot.Tipo);
             if (drawn is not null)
             {
                 session.Questions[index] = BankDrawer.Fill(slot, drawn, Random.Shared);
@@ -955,10 +962,11 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <summary>
-    /// Una pregunta jugable al azar del banco de quien creó la sala que no haya salido aún en la partida (la marca
-    /// como usada). <paramref name="spec"/> null = cualquiera del banco. null si no queda ninguna o no hay banco.
+    /// Una pregunta jugable al azar del banco de quien creó la sala, del tipo indicado, que no haya salido aún en la
+    /// partida (la marca como usada). <paramref name="spec"/> null = cualquiera del banco. null si no queda ninguna o
+    /// no hay banco.
     /// </summary>
-    private async Task<BancoPregunta?> DrawFromBankAsync(GameSessionDocument session, PoolSpecDocument? spec)
+    private async Task<BancoPregunta?> DrawFromBankAsync(GameSessionDocument session, PoolSpecDocument? spec, string tipo)
     {
         if (session.BancoOwnerId is not { } owner) return null;
         try
@@ -966,7 +974,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             using var scope = _scopeFactory.CreateScope();
             var banco = scope.ServiceProvider.GetService<IBancoPreguntaRepository>();
             if (banco is null) return null;
-            var drawn = await BankDrawer.DrawAsync(banco, owner, spec, session.UsedBankIds, Random.Shared);
+            var drawn = await BankDrawer.DrawAsync(banco, owner, spec, session.UsedBankIds, Random.Shared, tipo);
             if (drawn is not null) session.UsedBankIds.Add(drawn.Id);
             return drawn;
         }
@@ -2000,7 +2008,8 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             // Del mismo banco que el resto de la partida, sin repetir ninguna que ya haya salido
             var owner = session.BancoOwnerId ?? quiz.CreatorId;
             var used = session.Questions.Where(q => q.Id < 0).Select(q => -q.Id).Concat(session.UsedBankIds).ToHashSet();
-            var ids = (await banco.FindIdsAsync(owner, null, null))
+            // Los penaltis son preguntas con turno: solo normales
+            var ids = (await banco.FindIdsAsync(owner, null, null, TiposPregunta.Normal))
                 .Where(id => !used.Contains(id)).OrderBy(_ => Random.Shared.Next()).ToList();
             if (ids.Count == 0) return [];
 

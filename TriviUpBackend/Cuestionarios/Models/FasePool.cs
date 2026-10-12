@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace TriviUpBackend.Cuestionarios.Entities;
 
@@ -39,6 +40,28 @@ public record FasePool
     /// <summary>Origen por filtros: dificultad (null = cualquiera).</summary>
     [MaxLength(10)]
     public string? Dificultad { get; init; }
+
+    /// <summary>
+    /// De las <see cref="Cantidad"/> preguntas, cuántas son de pulsador. Igual que <see cref="Colores"/> y
+    /// <see cref="Ocarina"/>: cada una sale del banco entre las preguntas de ese tipo. El resto son normales.
+    /// </summary>
+    public int Pulsador { get; init; }
+
+    public int Colores { get; init; }
+
+    public int Ocarina { get; init; }
+
+    /// <summary>Preguntas normales (con turno) que saca el pool.</summary>
+    [JsonIgnore]
+    public int Normales => Math.Max(Cantidad - Pulsador - Colores - Ocarina, 0);
+
+    /// <summary>Cuántas preguntas de cada tipo saca el pool (solo los tipos con alguna).</summary>
+    public IEnumerable<(string Tipo, int Cantidad)> CantidadesPorTipo() =>
+        new[]
+        {
+            (TiposPregunta.Normal, Normales), (TiposPregunta.Pulsador, Pulsador),
+            (TiposPregunta.Colores, Colores), (TiposPregunta.Ocarina, Ocarina)
+        }.Where(t => t.Item2 > 0);
 }
 
 /// <summary>
@@ -51,6 +74,10 @@ public record FasePoolPregunta
 
     [MaxLength(1000)]
     public string Enunciado { get; init; } = string.Empty;
+
+    /// <summary>Tipo, solo para mostrarlo en el builder; al validar y al jugar manda el del banco.</summary>
+    [MaxLength(20)]
+    public string? Tipo { get; init; }
 }
 
 /// <summary>Orígenes de un pool y sus límites.</summary>
@@ -75,14 +102,23 @@ public static class OrigenesPool
     public static FasePool Normalizar(FasePool pool)
     {
         var origen = EsValido(pool.Origen) ? pool.Origen.Trim().ToLowerInvariant() : Filtros;
+        var cantidad = Math.Clamp(pool.Cantidad, 1, CantidadMaxima);
+        // Las especiales no pueden pasar del total: se recortan en orden pulsador, colores, ocarina
+        var pulsador = Math.Clamp(pool.Pulsador, 0, cantidad);
+        var colores = Math.Clamp(pool.Colores, 0, cantidad - pulsador);
+        var ocarina = Math.Clamp(pool.Ocarina, 0, cantidad - pulsador - colores);
         return pool with
         {
             FaseNombre = string.IsNullOrWhiteSpace(pool.FaseNombre) ? null : pool.FaseNombre.Trim(),
             FaseColor = FaseColores.NormalizarOSinColor(pool.FaseColor),
-            Cantidad = Math.Clamp(pool.Cantidad, 1, CantidadMaxima),
+            Cantidad = cantidad,
+            Pulsador = pulsador,
+            Colores = colores,
+            Ocarina = ocarina,
             Origen = origen,
             Preguntas = origen == Manual
-                ? pool.Preguntas.Where(p => p.Id > 0).DistinctBy(p => p.Id).ToList()
+                ? pool.Preguntas.Where(p => p.Id > 0).DistinctBy(p => p.Id)
+                    .Select(p => p with { Tipo = TiposPregunta.NormalizarONormal(p.Tipo) }).ToList()
                 : new(),
             CategoriaId = origen == Filtros ? pool.CategoriaId : null,
             CategoriaNombre = origen == Filtros && pool.CategoriaId is not null ? pool.CategoriaNombre?.Trim() : null,

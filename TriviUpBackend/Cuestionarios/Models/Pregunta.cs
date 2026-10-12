@@ -56,7 +56,7 @@ public class Pregunta : ITimestamped
     [MaxLength(7)]
     public string? FaseColor { get; set; }
 
-    /// <summary>Tipo de pregunta: normal o pulsador (ver <see cref="TiposPregunta"/>).</summary>
+    /// <summary>Tipo de pregunta: normal, pulsador, colores u ocarina (ver <see cref="TiposPregunta"/>).</summary>
     [Required]
     [MaxLength(20)]
     public string Tipo { get; set; } = TiposPregunta.Normal;

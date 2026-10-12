@@ -126,10 +126,7 @@ public static class GameSessionMapper
         FaseNombre = snapshot.FaseNombre,
         FaseColor = snapshot.FaseColor,
         Dificultad = snapshot.Dificultad,
-        Tipo = snapshot.EsPulsador ? TiposPregunta.Pulsador
-            : snapshot.EsColores ? TiposPregunta.Colores
-            : snapshot.EsOcarina ? TiposPregunta.Ocarina
-            : TiposPregunta.Normal,
+        Tipo = snapshot.Tipo,
         Respuestas = snapshot.Respuestas.Select(r => new Respuesta
         {
             Id = r.Id,
