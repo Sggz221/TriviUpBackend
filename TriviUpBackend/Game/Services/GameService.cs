@@ -2299,6 +2299,17 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             question.ImagenUrl
         );
 
+        // "Pregunta X / N" de la fase en curso (las fases se juegan seguidas; los penaltis no cuentan)
+        var preguntaEnFase = 0;
+        var preguntasEnFase = 0;
+        if (!question.EsPenalti)
+        {
+            var deLaFase = session.Questions.Select((q, i) => (q, i))
+                .Where(x => !x.q.EsPenalti && x.q.FaseNumero == question.FaseNumero).ToList();
+            preguntasEnFase = deLaFase.Count;
+            preguntaEnFase = deLaFase.Count(x => x.i <= session.CurrentQuestionIndex);
+        }
+
         return new TurnStartedDto(
             answeringPlayerId.Value,
             false,
@@ -2331,7 +2342,9 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             BuzzerLockedRemainingMs(session),
             BuzzerWaitingForHost(session),
             session.Shootout is { Started: true } ? BuildPenaltyState(session) : null,
-            AnswersPending(session) ? session.RevealedAnswers : null
+            AnswersPending(session) ? session.RevealedAnswers : null,
+            preguntaEnFase,
+            preguntasEnFase
         );
     }
 

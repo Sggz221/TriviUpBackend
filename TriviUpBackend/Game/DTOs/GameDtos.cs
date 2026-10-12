@@ -231,7 +231,11 @@ public record TurnStartedDto(
     /// <summary>Tiro de la tanda de penaltis: estado de la tanda (null en una pregunta normal).</summary>
     PenaltyStateDto? Penalty = null,
     /// <summary>Presencial: respuestas que ya ha mostrado el anfitrión (null = todas).</summary>
-    int? RevealedAnswers = null
+    int? RevealedAnswers = null,
+    /// <summary>Número de la pregunta dentro de su fase, empezando en 1 (0 en los penaltis).</summary>
+    int PreguntaEnFase = 0,
+    /// <summary>Preguntas que tiene la fase en curso (0 en los penaltis).</summary>
+    int PreguntasEnFase = 0
 );
 
 /// <summary>Nota de la melodía de la ocarina: botón 0-4 y figura (Semicorchea, Corchea, Negra, Blanca).</summary>
