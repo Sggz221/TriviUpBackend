@@ -78,6 +78,22 @@ public class InMemoryGameSessionStoreTests
     }
 
     [Fact]
+    public async Task AcquireLock_DoubleDispose_DoesNotReleaseOtherHoldersLock()
+    {
+        var first = await _store.AcquireLockAsync("ROOM1", TimeSpan.FromSeconds(1));
+        Assert.NotNull(first);
+        await first.DisposeAsync();
+
+        await using var second = await _store.AcquireLockAsync("ROOM1", TimeSpan.FromSeconds(1));
+        Assert.NotNull(second);
+
+        await first.DisposeAsync();
+
+        var third = await _store.AcquireLockAsync("ROOM1", TimeSpan.FromMilliseconds(50));
+        Assert.Null(third);
+    }
+
+    [Fact]
     public async Task SaveAsync_IncrementsRevision()
     {
         var session = CreateSession("REV001");

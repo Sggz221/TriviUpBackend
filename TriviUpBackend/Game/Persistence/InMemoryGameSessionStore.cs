@@ -130,9 +130,16 @@ public sealed class InMemoryGameSessionStore : IGameSessionStore
 
     private sealed class Releaser(SemaphoreSlim semaphore) : IAsyncDisposable
     {
+        private int _released;
+
+        // Idempotente: un segundo DisposeAsync no debe liberar el semáforo otra vez
+        // (provocaría SemaphoreFullException o liberaría un lock ajeno).
         public ValueTask DisposeAsync()
         {
-            semaphore.Release();
+            if (Interlocked.Exchange(ref _released, 1) == 0)
+            {
+                semaphore.Release();
+            }
             return ValueTask.CompletedTask;
         }
     }

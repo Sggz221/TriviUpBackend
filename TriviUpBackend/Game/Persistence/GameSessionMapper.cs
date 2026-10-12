@@ -104,6 +104,7 @@ public static class GameSessionMapper
         FaseNumero = pregunta.FaseNumero,
         FaseNombre = pregunta.FaseNombre,
         FaseColor = pregunta.FaseColor,
+        Dificultad = pregunta.Dificultad,
         EsPulsador = pregunta.Tipo == TiposPregunta.Pulsador,
         EsColores = pregunta.Tipo == TiposPregunta.Colores,
         EsOcarina = pregunta.Tipo == TiposPregunta.Ocarina,
@@ -124,6 +125,7 @@ public static class GameSessionMapper
         FaseNumero = snapshot.FaseNumero,
         FaseNombre = snapshot.FaseNombre,
         FaseColor = snapshot.FaseColor,
+        Dificultad = snapshot.Dificultad,
         Tipo = snapshot.EsPulsador ? TiposPregunta.Pulsador
             : snapshot.EsColores ? TiposPregunta.Colores
             : snapshot.EsOcarina ? TiposPregunta.Ocarina

@@ -581,8 +581,10 @@ public class GameServiceComodinesTests
 
     // ========== Cambiar pregunta ==========
 
+    // Sin banco de preguntas (estos tests no tienen): se adelanta otra de la fase y la cambiada desaparece.
+    // Con banco, la nueva sale del banco (QuestionPoolTests).
     [Fact]
-    public async Task CambiarPregunta_SwapsWithAnUnplayedQuestion_AndRestartsTheTurn()
+    public async Task CambiarPregunta_WithoutBank_BringsForwardAnUnplayedQuestion_DropsTheOldOne_AndRestartsTheTurn()
     {
         var roomCode = await StartRoomAsync();
         var s = await SessionAsync(roomCode);
@@ -597,8 +599,10 @@ public class GameServiceComodinesTests
         Assert.True(result.IsSuccess);
         var after = await SessionAsync(roomCode);
         Assert.NotEqual(oldId, Current(after).Id);
-        Assert.Contains(after.Questions.Skip(1), q => q.Id == oldId);
-        Assert.Equal(idsBefore, after.Questions.Select(q => q.Id).OrderBy(i => i).ToList());
+        Assert.Contains(Current(after).Id, idsBefore);
+        // La cambiada no vuelve a salir en la partida
+        Assert.DoesNotContain(after.Questions, q => q.Id == oldId);
+        Assert.Equal(idsBefore.Count - 1, after.Questions.Count);
         Assert.Empty(after.EliminatedAnswerIndexes);
         Assert.True(after.TurnGeneration > generationBefore);
         Assert.Equal(player, after.GetCurrentPlayerId());
@@ -679,20 +683,6 @@ public class GameServiceComodinesTests
         var result = await UseAsync(roomCode, thief, ComodinTipo.CambiarPregunta, Current(s).Id);
 
         Assert.True(result.IsFailure);
-    }
-
-    [Fact]
-    public async Task CambiarPregunta_DoesNotChangeHowManyQuestionsEachPlayerAnswers()
-    {
-        var roomCode = await StartRoomAsync();
-        var s = await SessionAsync(roomCode);
-        var total = s.Questions.Count;
-        await UseAsync(roomCode, s.GetCurrentPlayerId()!.Value, ComodinTipo.CambiarPregunta, Current(s).Id);
-
-        var after = await SessionAsync(roomCode);
-
-        Assert.Equal(total, after.Questions.Count);
-        Assert.Equal(s.TurnQueue, after.TurnQueue);
     }
 
     // ========== 50/50 ==========

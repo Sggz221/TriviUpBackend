@@ -86,13 +86,14 @@ public class GameServiceTiebreakTests
         _service = new GameService(_store, options, new Mock<ILogger<GameService>>().Object, scopeFactory.Object);
     }
 
+    /// <summary>Preguntas en el banco de quien crea la sala (de ahí salen los penaltis).</summary>
     private void FillBank(int count)
     {
         for (var i = 1; i <= count; i++)
         {
             _banco.Add(new BancoPregunta
             {
-                Id = 1000 + i, CreatorId = Autor, Enunciado = $"Banco {i}",
+                Id = 1000 + i, CreatorId = Owner, Enunciado = $"Banco {i}",
                 Respuestas = [new BancoRespuesta { Texto = "Sí", EsCorrecta = true }, new BancoRespuesta { Texto = "No" }]
             });
         }

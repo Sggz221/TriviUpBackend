@@ -3,9 +3,9 @@ using System.ComponentModel.DataAnnotations;
 namespace TriviUpBackend.Cuestionarios.Entities;
 
 /// <summary>
-/// Fase cuyas preguntas no son fijas: en cada partida se sortean <see cref="Cantidad"/> preguntas
-/// del banco del autor del cuestionario, elegidas a mano o por filtros. Una fase con pool no tiene
-/// preguntas propias; ocupa su número de fase igual que las demás.
+/// Fase cuyas preguntas no son fijas: en cada partida se juegan <see cref="Cantidad"/> preguntas del banco
+/// de quien crea la sala, sacadas de una en una al jugarlas (ver Game.Services.BankDrawer), elegidas a mano o
+/// por filtros. Una fase con pool no tiene preguntas propias; ocupa su número de fase igual que las demás.
 /// </summary>
 public record FasePool
 {

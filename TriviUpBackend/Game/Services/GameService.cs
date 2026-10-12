@@ -7,6 +7,8 @@ using TriviUpBackend.Game.Hubs;
 using TriviUpBackend.Game.Models;
 using TriviUpBackend.Game.Persistence;
 using TriviUpBackend.Game.Repositories;
+using BancoPregunta = TriviUpBackend.Cuestionarios.Entities.BancoPregunta;
+using Dificultades = TriviUpBackend.Cuestionarios.Entities.Dificultades;
 using Pregunta = TriviUpBackend.Cuestionarios.Entities.Pregunta;
 
 namespace TriviUpBackend.Game.Services;
@@ -380,18 +382,29 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         session.State = GameState.Starting;
 
         var random = new Random();
-        List<Pregunta> questions;
+        List<QuestionSnapshot> questions;
+        var pools = new List<PoolSpecDocument>();
         using (var scope = _scopeFactory.CreateScope())
         {
             var repository = scope.ServiceProvider.GetRequiredService<IQuizRepository>();
-            questions = await repository.GetQuestionsWithAnswersAsync(session.QuizId) ?? [];
+            questions = GameSessionMapper.SnapshotQuestions(await repository.GetQuestionsWithAnswersAsync(session.QuizId) ?? []);
 
-            // Fases con pool: sus preguntas se sortean ahora del banco del autor
+            // Fases con pool: no se sortea nada todavía. Se reservan tantos huecos como pida el pool (si el banco de
+            // quien crea la sala da para ello) y cada uno se saca del banco cuando le toca jugarse (FillPendingAsync).
             var quiz = await repository.FindByIdAsync(session.QuizId);
-            if (quiz is not null && quiz.Pools.Count > 0)
+            var banco = scope.ServiceProvider.GetService<IBancoPreguntaRepository>();
+            if (quiz is not null && quiz.Pools.Count > 0 && banco is not null)
             {
-                var banco = scope.ServiceProvider.GetRequiredService<IBancoPreguntaRepository>();
-                questions = questions.Concat(await PoolDrawer.DrawAsync(quiz, banco, random)).ToList();
+                var bancoDelAutor = quiz.CreatorId == session.OwnerId;
+                foreach (var pool in quiz.Pools.OrderBy(p => p.FaseNumero))
+                {
+                    var spec = BankDrawer.ToSpec(pool, bancoDelAutor);
+                    var disponibles = (await BankDrawer.AvailableIdsAsync(banco, session.OwnerId, spec, [])).Count;
+                    var huecos = Math.Min(pool.Cantidad, disponibles);
+                    if (huecos == 0) continue;
+                    pools.Add(spec);
+                    for (var i = 0; i < huecos; i++) questions.Add(BankDrawer.Slot(spec, pools.Count - 1));
+                }
             }
         }
 
@@ -433,13 +446,24 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
 
         // Todos los jugadores responden las mismas preguntas: se descartan las últimas que sobran.
-        questions = FairTurnPlanner.TrimToFair(questions, playerIds.Count, q => Cuestionarios.Entities.TiposPregunta.SinTurno(q.Tipo));
+        questions = FairTurnPlanner.TrimToFair(questions, playerIds.Count, q => q.SinTurno);
 
-        session.Questions = GameSessionMapper.SnapshotQuestions(questions);
+        session.Questions = questions;
+        session.Pools = pools;
+        session.BancoOwnerId = session.OwnerId;
+        session.UsedBankIds = new();
+        session.CurrentQuestionIndex = 0;
+        if (!await FillPendingAsync(session))
+        {
+            _logger.LogWarning("No playable questions for quiz {QuizId} in room {RoomCode}", session.QuizId, roomCode);
+            session.State = GameState.Waiting;
+            await _store.SaveAsync(session);
+            return null;
+        }
+
         session.TurnQueue = playerIds;
         session.State = GameState.Playing;
         session.StartedAt = DateTime.UtcNow;
-        session.CurrentQuestionIndex = 0;
         session.TurnStartedAt = DateTime.UtcNow;
         session.TurnGeneration++;
         OpenQuestionWithoutTurn(session);
@@ -708,26 +732,27 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         // La respuesta cierra la llamada aunque el anfitrión no haya quitado el cartel.
         session.CallActive = false;
 
+        var basePoints = GetBasePoints(question);
         int pointsEarned;
         if (isCorrect)
         {
             if (doubleOrNothing)
             {
-                pointsEarned = _options.BasePoints * 2;
+                pointsEarned = basePoints * 2;
             }
             else
             {
                 var bonusSeconds = Math.Clamp(remainingSeconds, 0, GetTurnLimitSeconds(session));
                 pointsEarned = Math.Min(
-                    _options.BasePoints + (bonusSeconds * _options.TimeBonusMultiplier),
-                    _options.BasePoints + _options.MaxTimeBonus);
+                    basePoints + (bonusSeconds * _options.TimeBonusMultiplier),
+                    basePoints + _options.MaxTimeBonus);
             }
             player.Score += pointsEarned;
             player.CorrectAnswers++;
         }
         else
         {
-            var penalty = doubleOrNothing ? _options.BasePoints : isSteal ? _options.BasePoints / 2 : 0;
+            var penalty = doubleOrNothing ? basePoints : isSteal ? basePoints / 2 : 0;
             pointsEarned = -ApplyPenalty(player, penalty);
             player.WrongAnswers++;
         }
@@ -749,7 +774,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             return failedSteal;
         }
 
-        var bets = ResolveBets(session, originalAnswered: !isSteal, isCorrect);
+        var bets = ResolveBets(session, originalAnswered: !isSteal, isCorrect, basePoints);
         var turnResult = new TurnResultDto(player.UserId, isCorrect, correctAnswerIndex, pointsEarned, player.Score,
             IsSteal: isSteal, DoubleOrNothing: doubleOrNothing, Bets: bets);
 
@@ -769,6 +794,24 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         return turnResult;
     }
 
+    /// <summary>
+    /// Puntos base de la pregunta: los minijuegos (pulsador, colores, ocarina) valen 150; el resto, según su
+    /// dificultad: fácil 100, media 200 y difícil 300 (sin clasificar, los de <see cref="GameOptions.BasePoints"/>).
+    /// </summary>
+    private int GetBasePoints(QuestionSnapshot question)
+    {
+        if (question.SinTurno) return MinigamePoints;
+        return Dificultades.Normalizar(question.Dificultad) switch
+        {
+            Dificultades.Facil => 100,
+            Dificultades.Media => 200,
+            Dificultades.Dificil => 300,
+            _ => _options.BasePoints
+        };
+    }
+
+    private const int MinigamePoints = 150;
+
     /// <summary>Resta puntos sin bajar de 0; devuelve lo que realmente se restó.</summary>
     private static int ApplyPenalty(PlayerDocument player, int penalty)
     {
@@ -781,7 +824,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     /// Liquida las apuestas de la pregunta. Si la respondió el ladrón (y acertó), el jugador
     /// en turno nunca llegó a responder: las apuestas se anulan y se devuelve el comodín.
     /// </summary>
-    private List<BetResultDto> ResolveBets(GameSessionDocument session, bool originalAnswered, bool isCorrect)
+    private List<BetResultDto> ResolveBets(GameSessionDocument session, bool originalAnswered, bool isCorrect, int basePoints)
     {
         var results = new List<BetResultDto>();
         foreach (var bet in session.Bets)
@@ -797,7 +840,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             }
 
             var won = bet.PredictsCorrect == isCorrect;
-            var points = won ? _options.BasePoints / 2 : 0;
+            var points = won ? basePoints / 2 : 0;
             bettor.Score += points;
             results.Add(new BetResultDto(bettor.UserId, bet.PredictsCorrect, won, false, points, bettor.Score));
         }
@@ -860,9 +903,81 @@ public class GameService : IGameService, ITurnDeadlineProcessor
     }
 
     /// <summary>
-    /// Pregunta por la que cambiar la actual: una aún no jugada de la misma fase (sin pulsador), al azar.
-    /// Se intercambian de sitio, así que nada se repite ni se pierde y el total de preguntas no cambia.
+    /// Cambia la pregunta en curso por otra nueva, y la cambiada desaparece de la partida (no vuelve a salir). La
+    /// nueva sale del banco de quien creó la sala: en una fase con pool, con las reglas del pool; en una fase de
+    /// preguntas fijas, cualquiera del banco. Si el banco no tiene ninguna sin salir, en una fase fija se adelanta
+    /// otra pregunta aún no jugada de la fase (la fase se queda con una menos). false = no hay por cuál cambiarla.
     /// </summary>
+    private async Task<bool> ReplaceCurrentQuestionAsync(GameSessionDocument session)
+    {
+        var index = session.CurrentQuestionIndex;
+        var current = session.Questions[index];
+        var spec = current.PoolIndex is { } poolIndex ? session.Pools[poolIndex] : null;
+
+        var drawn = await DrawFromBankAsync(session, spec);
+        if (drawn is not null)
+        {
+            session.Questions[index] = BankDrawer.Fill(current, drawn, Random.Shared);
+            return true;
+        }
+
+        if (spec is not null) return false;
+        var later = PickReplacementQuestionIndex(session);
+        if (later is null) return false;
+        session.Questions[index] = session.Questions[later.Value];
+        session.Questions.RemoveAt(later.Value);
+        return true;
+    }
+
+    /// <summary>
+    /// Si la pregunta en curso es un hueco de pool, la saca ahora del banco. Si el banco ya no tiene ninguna que
+    /// sirva (se han ido gastando en la partida), el hueco se quita y se pasa al siguiente.
+    /// false = no quedan preguntas.
+    /// </summary>
+    private async Task<bool> FillPendingAsync(GameSessionDocument session)
+    {
+        var index = session.CurrentQuestionIndex;
+        while (index < session.Questions.Count && session.Questions[index].PendingDraw)
+        {
+            var slot = session.Questions[index];
+            var drawn = await DrawFromBankAsync(session, session.Pools[slot.PoolIndex!.Value]);
+            if (drawn is not null)
+            {
+                session.Questions[index] = BankDrawer.Fill(slot, drawn, Random.Shared);
+            }
+            else
+            {
+                _logger.LogInformation("Room {RoomCode}: no bank question left for a pool slot; skipping it", session.RoomCode);
+                session.Questions.RemoveAt(index);
+            }
+        }
+        return index < session.Questions.Count;
+    }
+
+    /// <summary>
+    /// Una pregunta jugable al azar del banco de quien creó la sala que no haya salido aún en la partida (la marca
+    /// como usada). <paramref name="spec"/> null = cualquiera del banco. null si no queda ninguna o no hay banco.
+    /// </summary>
+    private async Task<BancoPregunta?> DrawFromBankAsync(GameSessionDocument session, PoolSpecDocument? spec)
+    {
+        if (session.BancoOwnerId is not { } owner) return null;
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var banco = scope.ServiceProvider.GetService<IBancoPreguntaRepository>();
+            if (banco is null) return null;
+            var drawn = await BankDrawer.DrawAsync(banco, owner, spec, session.UsedBankIds, Random.Shared);
+            if (drawn is not null) session.UsedBankIds.Add(drawn.Id);
+            return drawn;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not draw a bank question for room {RoomCode}", session.RoomCode);
+            return null;
+        }
+    }
+
+    /// <summary>Una pregunta aún no jugada de la misma fase (con turno), al azar.</summary>
     private static int? PickReplacementQuestionIndex(GameSessionDocument session)
     {
         var current = session.Questions[session.CurrentQuestionIndex];
@@ -1012,13 +1127,10 @@ public class GameService : IGameService, ITurnDeadlineProcessor
                 {
                     return Result.Failure<ComodinUsedDto>("No se puede cambiar una pregunta robada.");
                 }
-                var replacementIndex = PickReplacementQuestionIndex(session);
-                if (replacementIndex is null)
+                if (!await ReplaceCurrentQuestionAsync(session))
                 {
                     return Result.Failure<ComodinUsedDto>("No quedan preguntas de esta fase para cambiar.");
                 }
-                (session.Questions[session.CurrentQuestionIndex], session.Questions[replacementIndex.Value]) =
-                    (session.Questions[replacementIndex.Value], session.Questions[session.CurrentQuestionIndex]);
                 // Lo eliminado o marcado era de la pregunta anterior.
                 session.EliminatedAnswerIndexes.Clear();
                 session.MarkedAnswerIndex = null;
@@ -1498,7 +1610,7 @@ public class GameService : IGameService, ITurnDeadlineProcessor
         }
 
         session.CurrentQuestionIndex++;
-        if (session.CurrentQuestionIndex >= session.Questions.Count)
+        if (!await FillPendingAsync(session))
         {
             await FinishOrTiebreakAsync(session);
             return;
@@ -1885,12 +1997,14 @@ public class GameService : IGameService, ITurnDeadlineProcessor
             var quiz = quizzes is null ? null : await quizzes.FindByIdAsync(session.QuizId);
             if (quiz is null || banco is null) return [];
 
-            var used = session.Questions.Where(q => q.Id < 0).Select(q => -q.Id).ToHashSet();
-            var ids = (await banco.FindIdsAsync(quiz.CreatorId, null, null))
+            // Del mismo banco que el resto de la partida, sin repetir ninguna que ya haya salido
+            var owner = session.BancoOwnerId ?? quiz.CreatorId;
+            var used = session.Questions.Where(q => q.Id < 0).Select(q => -q.Id).Concat(session.UsedBankIds).ToHashSet();
+            var ids = (await banco.FindIdsAsync(owner, null, null))
                 .Where(id => !used.Contains(id)).OrderBy(_ => Random.Shared.Next()).ToList();
             if (ids.Count == 0) return [];
 
-            var loaded = (await banco.FindByIdsAsync(quiz.CreatorId, ids)).Where(PoolDrawer.EsJugable).ToDictionary(p => p.Id);
+            var loaded = (await banco.FindByIdsAsync(owner, ids)).Where(BankDrawer.EsJugable).ToDictionary(p => p.Id);
             return ids.Where(loaded.ContainsKey).Take(needed * 2).Select(id =>
             {
                 var p = loaded[id];

@@ -182,6 +182,20 @@ public class GameServiceDynamicRoundTests
     }
 
     [Fact]
+    public async Task Submit_Minigame_Scores150Base_WhateverItsDifficulty()
+    {
+        _questions.ForEach(q => q.Dificultad = "dificil");
+        var roomCode = await StartRoomAsync();
+        var question = (await _store.GetAsync(roomCode))!.Questions[0];
+        await BuzzAsync(roomCode, 300L, question.Id);
+
+        var result = await _service.SubmitAnswerAsync(roomCode, 300L, question.Id,
+            question.Respuestas.FindIndex(r => r.EsCorrecta));
+
+        Assert.Equal(150 + 200, result!.PointsEarned); // 150 + bonus máximo por responder al instante
+    }
+
+    [Fact]
     public async Task Comodin_InDynamicQuestion_IsRejected()
     {
         var roomCode = await StartRoomAsync();

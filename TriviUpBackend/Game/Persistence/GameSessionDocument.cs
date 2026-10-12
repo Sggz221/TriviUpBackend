@@ -34,6 +34,17 @@ public sealed class GameSessionDocument
     /// <summary>Comodines activos y usos por jugador, elegidos al crear la sala (null = los del modo, un uso).</summary>
     public Dictionary<ComodinTipo, int>? ComodinUsos { get; set; }
 
+    // ---- Banco de preguntas (fases con pool, cambios de pregunta y penaltis) ----
+
+    /// <summary>Usuario de cuyo banco salen las preguntas: quien creó la sala (se fija al empezar la partida).</summary>
+    public long? BancoOwnerId { get; set; }
+
+    /// <summary>Reglas de cada fase con pool; los huecos de esas fases apuntan aquí con <see cref="QuestionSnapshot.PoolIndex"/>.</summary>
+    public List<PoolSpecDocument> Pools { get; set; } = new();
+
+    /// <summary>Preguntas del banco que ya han salido en la partida (jugadas o cambiadas): no vuelven a salir.</summary>
+    public List<long> UsedBankIds { get; set; } = new();
+
     // ---- Modo presencial: respuesta de la pregunta en curso (se reinicia en cada pregunta) ----
 
     /// <summary>Opción marcada por el anfitrión y aún sin confirmar (null = ninguna).</summary>
@@ -211,8 +222,8 @@ public sealed class ColorGuessDocument
 }
 
 /// <summary>
-/// Tanda de penaltis (reglas en <see cref="Services.PenaltyShootout"/>). Cada tiro es una pregunta del banco del
-/// creador del cuestionario: acierto = gol. No suma puntos; solo decide el desempate.
+/// Tanda de penaltis (reglas en <see cref="Services.PenaltyShootout"/>). Cada tiro es una pregunta del banco de
+/// quien creó la sala: acierto = gol. No suma puntos; solo decide el desempate.
 /// </summary>
 public sealed class ShootoutDocument
 {
@@ -248,6 +259,20 @@ public sealed class BetDocument
     public bool PredictsCorrect { get; set; }
 }
 
+/// <summary>Reglas de un pool en la partida (ver <see cref="Services.BankDrawer.ToSpec"/>).</summary>
+public sealed class PoolSpecDocument
+{
+    public int FaseNumero { get; set; }
+    public string? FaseNombre { get; set; }
+    public string? FaseColor { get; set; }
+    /// <summary>Preguntas que pedía el pool (las que hay en la partida pueden ser menos si el banco no da para más).</summary>
+    public int Cantidad { get; set; }
+    /// <summary>Preguntas del banco elegidas a mano (null = por filtros).</summary>
+    public List<long>? CandidateIds { get; set; }
+    public long? CategoriaId { get; set; }
+    public string? Dificultad { get; set; }
+}
+
 public sealed class QuestionSnapshot
 {
     public long Id { get; set; }
@@ -260,6 +285,9 @@ public sealed class QuestionSnapshot
     public string? FaseNombre { get; set; }
     public string? FaseColor { get; set; }
 
+    /// <summary>Dificultad (facil, media, dificil o null): decide los puntos base de la pregunta.</summary>
+    public string? Dificultad { get; set; }
+
     /// <summary>Pregunta de pulsador: el primero en pulsar se lleva la pregunta.</summary>
     public bool EsPulsador { get; set; }
 
@@ -271,6 +299,12 @@ public sealed class QuestionSnapshot
 
     /// <summary>Pregunta de la tanda de penaltis (no cuenta como pregunta de la partida).</summary>
     public bool EsPenalti { get; set; }
+
+    /// <summary>Pregunta de una fase con pool: índice en <see cref="GameSessionDocument.Pools"/> (null = pregunta fija).</summary>
+    public int? PoolIndex { get; set; }
+
+    /// <summary>Hueco de pool aún sin pregunta: se saca del banco cuando le toca jugarse.</summary>
+    public bool PendingDraw => PoolIndex is not null && Respuestas.Count == 0;
 
     /// <summary>Pregunta sin turno (pulsador, colores u ocarina).</summary>
     public bool SinTurno => EsPulsador || EsColores || EsOcarina;

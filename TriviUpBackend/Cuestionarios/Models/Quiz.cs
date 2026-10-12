@@ -28,7 +28,7 @@ public class Quiz : ITimestamped
     /// <summary>Fases con pool de preguntas del banco, serializadas (ver <see cref="Pools"/>).</summary>
     public string? PoolsJson { get; set; }
 
-    /// <summary>Fases cuyas preguntas se sortean del banco del autor en cada partida.</summary>
+    /// <summary>Fases cuyas preguntas salen, al jugarse, del banco de quien crea la sala.</summary>
     [NotMapped]
     public List<FasePool> Pools
     {

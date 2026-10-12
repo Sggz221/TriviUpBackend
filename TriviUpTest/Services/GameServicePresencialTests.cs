@@ -342,6 +342,22 @@ public class GameServicePresencialTests
         Assert.True((await _service.UseComodinAsync(roomCode, Bystander(s), ComodinTipo.Robo, Current(s).Id)).IsFailure);
     }
 
+    [Theory]
+    [InlineData("facil", 100)]
+    [InlineData("media", 200)]
+    [InlineData("dificil", 300)]
+    [InlineData(null, 100)]
+    public async Task ConfirmAnswer_PointsDependOnDifficulty(string? dificultad, int expected)
+    {
+        _questions.ForEach(q => q.Dificultad = dificultad);
+        var roomCode = await StartRoomAsync();
+        var s = await SessionAsync(roomCode);
+
+        var result = await MarkAndConfirmAsync(roomCode, CorrectIndex(s));
+
+        Assert.Equal(expected, result.PointsEarned);
+    }
+
     [Fact]
     public async Task ConfirmAnswer_Wrong_ScoresZero()
     {
@@ -649,7 +665,8 @@ public class GameServicePresencialTests
                     new Respuesta { Id = 12, Texto = "No", EsCorrecta = false }
                 ]
             },
-            .. FourAnswerQuestions(2, firstId: 2)
+            // En otra fase: el orden dentro de una fase es aleatorio y la de pulsador tiene que salir la primera
+            .. FourAnswerQuestions(2, fase: 2, firstId: 2)
         ];
         var roomCode = await StartRoomAsync();
         var s = await SessionAsync(roomCode);

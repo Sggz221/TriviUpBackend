@@ -9,6 +9,7 @@ using TriviUpBackend.Cuestionarios.Services;
 using TriviUpBackend.Errors;
 using TriviUpBackend.Game.Configuration;
 using TriviUpBackend.Game.Hubs;
+using TriviUpBackend.Game.Models;
 using TriviUpBackend.Game.Persistence;
 using TriviUpBackend.Game.Services;
 using TriviUpBackend.Services.Cache;
@@ -18,7 +19,7 @@ using Respuesta = TriviUpBackend.Cuestionarios.Entities.Respuesta;
 
 namespace TriviUpTest.Services;
 
-/// <summary>Pool de preguntas: fases cuyas preguntas se sortean del banco del autor en cada partida.</summary>
+/// <summary>Pool de preguntas: fases cuyas preguntas salen, de una en una, del banco de quien crea la sala.</summary>
 public class QuestionPoolTests
 {
     private const long Autor = 1;
@@ -65,51 +66,38 @@ public class QuestionPoolTests
 
     private static Quiz QuizCon(params FasePool[] pools) => new() { Id = 7, CreatorId = Autor, Nombre = "Q", Pools = pools.ToList() };
 
-    // ---------- sorteo ----------
+    // ---------- sorteo (de una en una, del banco de quien crea la sala) ----------
+
+    private static PoolSpecDocument Spec(FasePool pool, bool bancoDelAutor = true) => BankDrawer.ToSpec(pool, bancoDelAutor);
+
+    /// <summary>Saca preguntas hasta vaciar lo que permite el pool, como haría una partida larga.</summary>
+    private async Task<List<long>> DrawAllAsync(PoolSpecDocument spec, long owner = Autor)
+    {
+        var used = new List<long>();
+        while (await BankDrawer.DrawAsync(_bancoRepo.Object, owner, spec, used, new Random(used.Count)) is { } p) used.Add(p.Id);
+        return used;
+    }
 
     [Fact]
-    public async Task Draw_Filters_OnlyMatchingQuestionsFromAuthorsBank()
+    public async Task Draw_Filters_OnlyMatchingQuestionsFromTheBank()
     {
         Banco(1, categoria: 10, dificultad: "facil");
         Banco(2, categoria: 10, dificultad: "dificil");
         Banco(3, categoria: 20, dificultad: "facil");
         Banco(4, categoria: 10, dificultad: "facil", creator: 99);
 
-        var preguntas = await PoolDrawer.DrawAsync(QuizCon(Filtros(1, 10, categoria: 10, dificultad: "facil")), _bancoRepo.Object, new Random(1));
-
-        Assert.Equal([-1L], preguntas.Select(p => p.Id));
+        Assert.Equal([1L], await DrawAllAsync(Spec(Filtros(1, 10, categoria: 10, dificultad: "facil"))));
     }
 
     [Fact]
-    public async Task Draw_KeepsCuriosidadFromBank()
+    public async Task Draw_NeverRepeatsAQuestionAlreadyUsedInTheGame()
     {
-        Banco(1).Curiosidad = "Dato curioso";
+        for (var i = 1; i <= 6; i++) Banco(i);
 
-        var pregunta = Assert.Single(await PoolDrawer.DrawAsync(QuizCon(Filtros(1, 1)), _bancoRepo.Object, new Random(1)));
+        var ids = await DrawAllAsync(Spec(Filtros(1, 2)));
 
-        Assert.Equal("Dato curioso", pregunta.Curiosidad);
-    }
-
-    [Fact]
-    public async Task Draw_TakesExactlyTheRequestedAmount()
-    {
-        for (var i = 1; i <= 10; i++) Banco(i);
-
-        var preguntas = await PoolDrawer.DrawAsync(QuizCon(Filtros(1, 4)), _bancoRepo.Object, new Random(3));
-
-        Assert.Equal(4, preguntas.Count);
-        Assert.Equal(4, preguntas.Select(p => p.Id).Distinct().Count());
-    }
-
-    [Fact]
-    public async Task Draw_NotEnoughQuestions_PlaysWhatThereIs()
-    {
-        Banco(1);
-        Banco(2);
-
-        var preguntas = await PoolDrawer.DrawAsync(QuizCon(Filtros(1, 5)), _bancoRepo.Object, new Random(1));
-
-        Assert.Equal(2, preguntas.Count);
+        // El pool pide 2 por partida, pero el banco entero sirve: salen todas, sin repetir
+        Assert.Equal([1L, 2, 3, 4, 5, 6], ids.Order());
     }
 
     [Fact]
@@ -121,36 +109,45 @@ public class QuestionPoolTests
         Banco(4, creator: 99);
 
         // 2 elegidas que existen (1 y 3), una borrada (50) y una de otro usuario (4)
-        var preguntas = await PoolDrawer.DrawAsync(QuizCon(Manual(1, 4, 1, 3, 50, 4)), _bancoRepo.Object, new Random(1));
-
-        Assert.Equal([1L, 3L], preguntas.Select(p => -p.Id).Order());
+        Assert.Equal([1L, 3L], (await DrawAllAsync(Spec(Manual(1, 4, 1, 3, 50, 4)))).Order());
     }
 
     [Fact]
-    public async Task Draw_SameBankQuestionNeverAppearsTwiceInAGame()
-    {
-        Banco(1);
-        Banco(2);
-
-        var preguntas = await PoolDrawer.DrawAsync(QuizCon(Manual(1, 2, 1, 2), Filtros(2, 2)), _bancoRepo.Object, new Random(1));
-
-        Assert.Equal(2, preguntas.Count);
-        Assert.Equal(2, preguntas.Select(p => p.Id).Distinct().Count());
-    }
-
-    [Fact]
-    public async Task Draw_CarriesPhaseDataAndSkipsUnplayableQuestions()
+    public async Task Draw_SkipsUnplayableQuestions()
     {
         Banco(1);
         var rota = Banco(2);
         rota.Respuestas = [new BancoRespuesta { Texto = "Sí", EsCorrecta = true }, new BancoRespuesta { Texto = "No", EsCorrecta = true }];
 
-        var pool = Filtros(2, 5) with { FaseNombre = "Ronda banco", FaseColor = "#ff8800" };
-        var preguntas = await PoolDrawer.DrawAsync(QuizCon(pool), _bancoRepo.Object, new Random(1));
+        Assert.Equal([1L], await DrawAllAsync(Spec(Filtros(1, 5))));
+    }
 
-        var p = Assert.Single(preguntas);
-        Assert.Equal((2, "Ronda banco", "#ff8800", TiposPregunta.Normal), (p.FaseNumero, p.FaseNombre, p.FaseColor, p.Tipo));
-        Assert.Single(p.Respuestas, r => r.EsCorrecta);
+    [Fact]
+    public void Spec_RoomCreatedByAnotherUser_UsesTheirWholeBankWithThePoolDifficulty()
+    {
+        var manual = Spec(Manual(1, 2, 1, 2), bancoDelAutor: false);
+        var filtros = Spec(Filtros(2, 3, categoria: 10, dificultad: "media"), bancoDelAutor: false);
+
+        // Las preguntas y categorías elegidas son del banco del autor: no valen en el de otro
+        Assert.Null(manual.CandidateIds);
+        Assert.Null(filtros.CategoriaId);
+        Assert.Equal("media", filtros.Dificultad);
+    }
+
+    [Fact]
+    public async Task Fill_KeepsThePhaseOfTheSlot_AndTheBankData()
+    {
+        var banco = Banco(1);
+        banco.Curiosidad = "Dato curioso";
+        var spec = Spec(Filtros(2, 5) with { FaseNombre = "Ronda banco", FaseColor = "#ff8800" });
+
+        var drawn = (await BankDrawer.DrawAsync(_bancoRepo.Object, Autor, spec, [], new Random(1)))!;
+        var q = BankDrawer.Fill(BankDrawer.Slot(spec, 0), drawn, new Random(1));
+
+        Assert.Equal((-1L, 2, "Ronda banco", "#ff8800", 0), (q.Id, q.FaseNumero, q.FaseNombre, q.FaseColor, q.PoolIndex));
+        Assert.Equal("Dato curioso", q.Curiosidad);
+        Assert.False(q.PendingDraw);
+        Assert.Single(q.Respuestas, r => r.EsCorrecta);
     }
 
     // ---------- validación y guardado ----------
@@ -239,32 +236,148 @@ public class QuestionPoolTests
 
     // ---------- partida ----------
 
+    private static Pregunta Fija(long id, int fase = 1) => new()
+    {
+        Id = id, NumeroPregunta = (int)id, Enunciado = $"Fija {id}", FaseNumero = fase,
+        Respuestas = [new Respuesta { Id = id * 10 + 1, Texto = "Sí", EsCorrecta = true }, new Respuesta { Id = id * 10 + 2, Texto = "No" }]
+    };
+
+    /// <summary>Sala empezada con el anfitrión <paramref name="owner"/> y <paramref name="players"/> jugadores.</summary>
+    private async Task<(GameService Service, InMemoryGameSessionStore Store, string Room)> StartAsync(
+        Quiz quiz, List<Pregunta> fijas, long owner = Autor, int players = 1)
+    {
+        var store = new InMemoryGameSessionStore();
+        var service = NewGameService(store, quiz, fijas);
+        var roomCode = await service.CreateGameAsync(quiz.Id, owner, "owner", "conn-owner");
+        for (var i = 0; i < players; i++) await service.JoinGameAsync(roomCode, 200L + i, $"p{i}", $"conn-{i}");
+        Assert.NotNull(await service.StartGameAsync(roomCode, owner));
+        return (service, store, roomCode);
+    }
+
+    private static QuestionSnapshot Current(GameSessionDocument s) => s.Questions[s.CurrentQuestionIndex];
+
+    private static async Task AnswerAsync(GameService service, InMemoryGameSessionStore store, string room)
+    {
+        var s = (await store.GetAsync(room))!;
+        await service.SubmitAnswerAsync(room, s.GetCurrentPlayerId()!.Value, Current(s).Id, Current(s).Respuestas.FindIndex(r => r.EsCorrecta));
+    }
+
     [Fact]
-    public async Task StartGame_PoolQuestionsAreDrawnIntoTheirPhase_AndEmptyPoolsAreSkipped()
+    public async Task StartGame_PoolPhasesGetSlots_NothingIsDrawnUpFront_AndEmptyPoolsAreSkipped()
     {
         Banco(1);
         Banco(2);
         Banco(3);
         var quiz = QuizCon(Filtros(2, 2), Manual(3, 1, 999)); // la fase 3 se queda sin preguntas (999 no existe)
-        List<Pregunta> fijas =
-        [
-            new() { Id = 100, NumeroPregunta = 1, Enunciado = "Fija", FaseNumero = 1,
-                    Respuestas = [new Respuesta { Id = 1001, Texto = "Sí", EsCorrecta = true }, new Respuesta { Id = 1002, Texto = "No" }] }
-        ];
 
-        var store = new InMemoryGameSessionStore();
-        var service = NewGameService(store, quiz, fijas);
-        var roomCode = await service.CreateGameAsync(quiz.Id, 100L, "owner", "conn-owner");
-        await service.JoinGameAsync(roomCode, 200L, "p1", "conn-200");
-        await service.JoinGameAsync(roomCode, 300L, "p2", "conn-300");
+        var (_, store, room) = await StartAsync(quiz, [Fija(100)], players: 2);
 
-        Assert.NotNull(await service.StartGameAsync(roomCode, 100L));
-
-        var session = (await store.GetAsync(roomCode))!;
+        var session = (await store.GetAsync(room))!;
         // 3 preguntas y 2 jugadores: se descarta la última para que ambos respondan lo mismo.
         Assert.Equal([1, 2], session.Questions.Select(q => q.FaseNumero));
         Assert.Equal(100L, session.Questions[0].Id);
-        Assert.All(session.Questions.Skip(1), q => Assert.True(q.Id < 0));
+        Assert.True(session.Questions[1].PendingDraw);
+        Assert.Empty(session.UsedBankIds);
+        _bancoRepo.Verify(r => r.FindByIdsAsync(It.IsAny<long>(), It.IsAny<IReadOnlyCollection<long>>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PoolSlot_IsDrawnFromTheBankWhenItsTurnComes()
+    {
+        Banco(1);
+        Banco(2);
+        var (service, store, room) = await StartAsync(QuizCon(Filtros(2, 1)), [Fija(100)]);
+
+        await AnswerAsync(service, store, room);
+
+        var session = (await store.GetAsync(room))!;
+        var drawn = Current(session);
+        Assert.Equal(1, session.CurrentQuestionIndex);
+        Assert.False(drawn.PendingDraw);
+        Assert.True(drawn.Id < 0);
+        Assert.Equal([-drawn.Id], session.UsedBankIds);
+    }
+
+    [Fact]
+    public async Task PoolQuestions_NeverRepeatInAGame()
+    {
+        for (var i = 1; i <= 4; i++) Banco(i);
+        var (service, store, room) = await StartAsync(QuizCon(Filtros(1, 4)), []);
+
+        var seen = new List<long>();
+        for (var i = 0; i < 4; i++)
+        {
+            seen.Add(Current((await store.GetAsync(room))!).Id);
+            await AnswerAsync(service, store, room);
+        }
+
+        Assert.Equal([-4L, -3, -2, -1], seen.Order());
+    }
+
+    [Fact]
+    public async Task PoolQuestions_ComeFromTheBankOfWhoCreatesTheRoom()
+    {
+        Banco(1);                // del autor del cuestionario
+        Banco(2, creator: 500);  // de quien crea la sala
+        var quiz = QuizCon(Manual(1, 1, 1));
+
+        var (_, store, room) = await StartAsync(quiz, [], owner: 500);
+
+        Assert.Equal(-2L, Current((await store.GetAsync(room))!).Id);
+    }
+
+    [Fact]
+    public async Task CambiarPregunta_InAPoolPhase_DrawsANewBankQuestion_AndTheOldOneNeverComesBack()
+    {
+        for (var i = 1; i <= 3; i++) Banco(i);
+        var (service, store, room) = await StartAsync(QuizCon(Filtros(1, 2)), []);
+        var s = (await store.GetAsync(room))!;
+        var old = Current(s).Id;
+
+        var result = await service.UseComodinAsync(room, s.GetCurrentPlayerId()!.Value, ComodinTipo.CambiarPregunta, old);
+
+        Assert.True(result.IsSuccess);
+        var after = (await store.GetAsync(room))!;
+        var nueva = Current(after).Id;
+        Assert.NotEqual(old, nueva);
+        Assert.Equal(2, after.Questions.Count);
+        Assert.Equal(2, after.UsedBankIds.Count);
+
+        // La siguiente es la única del banco que no ha salido: la cambiada no vuelve
+        await AnswerAsync(service, store, room);
+        var last = Current((await store.GetAsync(room))!).Id;
+        Assert.DoesNotContain(last, new[] { old, nueva });
+    }
+
+    [Fact]
+    public async Task CambiarPregunta_InAPoolPhase_BankExhausted_FailsWithoutSpendingTheComodin()
+    {
+        Banco(1);
+        var (service, store, room) = await StartAsync(QuizCon(Filtros(1, 1)), []);
+        var s = (await store.GetAsync(room))!;
+        var player = s.GetCurrentPlayerId()!.Value;
+
+        var result = await service.UseComodinAsync(room, player, ComodinTipo.CambiarPregunta, Current(s).Id);
+
+        Assert.True(result.IsFailure);
+        Assert.Empty((await store.GetAsync(room))!.Players.Single(p => p.UserId == player).UsedComodines);
+    }
+
+    [Fact]
+    public async Task CambiarPregunta_InAFixedPhase_TakesOneFromTheBank_AndDropsTheOldOne()
+    {
+        Banco(1);
+        var (service, store, room) = await StartAsync(QuizCon(), [Fija(100), Fija(101)]);
+        var s = (await store.GetAsync(room))!;
+        var old = Current(s).Id;
+
+        var result = await service.UseComodinAsync(room, s.GetCurrentPlayerId()!.Value, ComodinTipo.CambiarPregunta, old);
+
+        Assert.True(result.IsSuccess);
+        var after = (await store.GetAsync(room))!;
+        Assert.Equal(-1L, Current(after).Id);
+        Assert.Equal(2, after.Questions.Count);
+        Assert.DoesNotContain(after.Questions, q => q.Id == old);
     }
 
     private GameService NewGameService(InMemoryGameSessionStore store, Quiz quiz, List<Pregunta> fijas)
